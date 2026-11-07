@@ -2,10 +2,13 @@
 """Benchmark evmopt (and optionally gasol's outputs) on gasol's asm corpus; prints markdown.
 
 Usage: scripts/benchmark.py [--gasol DIR] [--jobs N] [--only NAME...]
-DIR holds <name>/<name>_optimized.json_solc and <name>/log.txt per contract (gasol runs).
+DIR holds <name>/<name>_optimized.json_solc[.gz] and <name>/log.txt per contract (gasol runs),
+e.g. bench/gasol-ff5efe78/raw.
 """
 import argparse
 import concurrent.futures as cf
+import gzip
+import tempfile
 import os
 import re
 import subprocess
@@ -53,10 +56,15 @@ def bench_one(path, gasol_dir):
         d = gasol_dir / name
         row["gasol"] = gasol_log(d / "log.txt")
         opt = d / f"{name}_optimized.json_solc"
-        if opt.exists():
-            cmp = subprocess.run([str(EVMOPT), "--fork", "cancun", "gasolcmp", str(path), str(opt)],
-                                 capture_output=True, text=True).stdout
-            row["cmp"] = cmp.splitlines()[-3:]
+        gz = opt.with_name(opt.name + ".gz")
+        with tempfile.TemporaryDirectory() as tmp:
+            if not opt.exists() and gz.exists():
+                opt = Path(tmp) / opt.name
+                opt.write_bytes(gzip.decompress(gz.read_bytes()))
+            if opt.exists():
+                cmp = subprocess.run([str(EVMOPT), "--fork", "cancun", "gasolcmp", str(path), str(opt)],
+                                     capture_output=True, text=True).stdout
+                row["cmp"] = cmp.splitlines()[-3:]
     return row
 
 

@@ -127,14 +127,15 @@ def Demand.dec (d : Demand) (t : Term) : Demand := d.insert t (d.get t - 1)
 
 /-- Where an operand is emitted: at top level, as an operation's deepest operand, or as a
     later operand (directly above the previous one), possibly of a commutative operation. -/
-inductive EMode | top | first | later | laterComm
+inductive EMode | top | topKeep | first | later | laterComm
   deriving BEq
 
 /-- Put `t` on top of `cur` (top first). Uses an existing copy in place on its last use where
     possible; otherwise DUPs it; otherwise computes it. -/
 partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (mode : EMode := .top) :
     Option (List Term × List Instr × Demand) :=
-  let d := d.dec t
+  -- a goal placement reserves its copy: not counted as a use, no spare kept
+  let d := if mode == .top then d else d.dec t
   let lastUse := d.get t == 0 && countIn t cur == 1
   match cur.idxOf? t with
   | some 0 =>
@@ -151,7 +152,8 @@ partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (mode : EM
   | none =>
     -- keep a copy below when more uses remain (CSE)
     let keep := fun (c : List Term) (pr : List Instr) (dd : Demand) =>
-      if dd.get t > 0 then (t :: c, pr ++ [.dup ⟨0, by decide⟩], dd) else (c, pr, dd)
+      if mode != .top && dd.get t > 0 then (t :: c, pr ++ [.dup ⟨0, by decide⟩], dd)
+      else (c, pr, dd)
     match t with
     | .const v =>
       let r := constRecipe f v
@@ -239,7 +241,7 @@ partial def preclean (cur : List Term) (d : Demand) (fuel : Nat := 64) : List Te
   | [] => ([], [])
 
 /-- Greedy lowering of the block's normalised SFS. -/
-def greedyWith (pre bottom : Bool) (f : Fork) (b : Block) : Option Block := do
+def greedyWith (pre bottom reserve : Bool) (f : Fork) (b : Block) : Option Block := do
   let S ← lift f b
   let goal := S.ts.map norm
   let init := (List.range S.d).map Term.var
@@ -253,14 +255,15 @@ def greedyWith (pre bottom : Bool) (f : Fork) (b : Block) : Option Block := do
   let keep := if bottom then commonBottom init goal else 0
   let (cur, prog, _) ← (goal.take (goal.length - keep)).reverse.foldlM (fun (c, pr, d) t =>
       if !bottom && c.contains t then some (c, pr, d) else do
-      let (c', p', d') ← emit f t c d
+      let (c', p', d') ← emit f t c d (if reserve then .top else .topKeep)
       return (c', pr ++ p', d')) (init, [], demand)
   let fix ← shuffle cur goal
   return pre0 ++ prog ++ fix
 
 def greedy (f : Fork) (b : Block) : Option Block :=
-  [(false, false), (true, false), (false, true), (true, true)].foldl (fun best (pre, bot) =>
-    match (greedyWith pre bot f b).filter (check f b ·), best with
+  [false, true].flatMap (fun p => [false, true].flatMap fun q => [(p, q, false), (p, q, true)])
+  |>.foldl (fun best (pre, bot, res) =>
+    match (greedyWith pre bot res f b).filter (check f b ·), best with
     | some c, some x => if score f c < score f x then some c else some x
     | some c, none => some c
     | none, x => x) none

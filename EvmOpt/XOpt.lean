@@ -44,7 +44,7 @@ def segOpt (f : Fork) (b : XBlock) : XBlock :=
     | .inr m => [.mem m]
 
 /-- Greedy lowering that emits the effects in their original order. -/
-def xgreedyWith (pre bottom : Bool) (f : Fork) (b0 : XBlock) : Option XBlock := do
+def xgreedyWith (pre bottom reserve : Bool) (f : Fork) (b0 : XBlock) : Option XBlock := do
   let b := toSentinel b0
   let X ← xlift f b
   let goal := X.S.ts.map norm
@@ -74,15 +74,16 @@ def xgreedyWith (pre bottom : Bool) (f : Fork) (b0 : XBlock) : Option XBlock := 
   let st ← (goal.take (goal.length - keep)).reverse.foldlM (fun st t =>
       if !bottom && st.1.contains t then some st else do
       let (c, pr, dd, k) ← flush t.effBound st
-      let (c', p', dd') ← emit f t c dd
+      let (c', p', dd') ← emit f t c dd (if reserve then .top else .topKeep)
       return (c', pr ++ p'.map XInstr.base, dd', k)) (init, [], demand, 0)
   let (cur, prog, _, _) ← flush effs.size st
   let fix ← shuffle cur goal
   return fromSentinel (pre0.map XInstr.base ++ prog ++ fix.map XInstr.base)
 
 def xgreedy (f : Fork) (b : XBlock) : Option XBlock :=
-  [(false, false), (true, false), (false, true), (true, true)].foldl (fun best (pre, bot) =>
-    match (xgreedyWith pre bot f b).filter (xcheck f b ·), best with
+  [false, true].flatMap (fun p => [false, true].flatMap fun q => [(p, q, false), (p, q, true)])
+  |>.foldl (fun best (pre, bot, res) =>
+    match (xgreedyWith pre bot res f b).filter (xcheck f b ·), best with
     | some c, some x => if xscore f c < xscore f x then some c else some x
     | some c, none => some c
     | none, x => x) none

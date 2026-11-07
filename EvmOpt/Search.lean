@@ -137,7 +137,11 @@ partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (mode : EM
   -- a goal placement reserves its copy: not counted as a use, no spare kept
   let d := if mode == .top then d else d.dec t
   let lastUse := d.get t == 0 && countIn t cur == 1
-  match cur.idxOf? t with
+  -- a constant no dearer than a DUP is pushed afresh rather than fetched from the stack
+  let cheapConst := match t with
+    | .const v => cost f (constRecipe f v) ≤ 3 && blockSize (constRecipe f v) ≤ 2
+    | _ => false
+  match (if cheapConst && !(lastUse && cur.head? == some t) then none else cur.idxOf? t) with
   | some 0 =>
     if lastUse then some (cur, [], d)
     else some (t :: cur, [.dup ⟨0, by decide⟩], d)

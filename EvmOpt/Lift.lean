@@ -179,4 +179,34 @@ theorem srun_run (f : Fork) (ρ : Ctx) : ∀ (b : Block) (S : SState),
           rw [if_neg]
           omega
 
+/-- One stack instruction on a symbolic stack, with its exact failure conditions. -/
+theorem exec_conc (f : Fork) (ρ : Ctx) (i : Instr) (S : SState) (hst : i.static f = true)
+    (h1 : S.d ≤ ρ.stk.length) :
+    i.exec f ρ.σ (conc ρ S) =
+      if (sstep i S).d ≤ ρ.stk.length ∧ (conc ρ (sstep i S)).length ≤ 1024
+      then some (conc ρ (sstep i S)) else none := by
+  have hw : ∀ bs, i = .push bs → bs.length ≤ 32 := by
+    rintro bs rfl; simp [Instr.static] at hst; exact hst.2
+  have hav : i.toOp.availableInFork f = true := by
+    simp only [Instr.static, Bool.and_eq_true] at hst; exact hst.1
+  by_cases hd : (ensure i.need S).d ≤ ρ.stk.length
+  · have hce := conc_ensure ρ S i.need (by simpa [ensure] using hd)
+    have hso := stackOp_conc ρ (ensure i.need S) i (ensure_length _ _) hw
+    rw [hce] at hso
+    have hconc : conc ρ { ensure i.need S with ts := i.sym (ensure i.need S).ts } =
+        conc ρ (sstep i S) := rfl
+    rw [hconc] at hso
+    unfold Instr.exec
+    simp only [hav, if_true, hso, Option.bind_some]
+    have hd' : (sstep i S).d ≤ ρ.stk.length := by simpa [sstep] using hd
+    by_cases hlen : (conc ρ (sstep i S)).length ≤ 1024
+    · rw [if_pos hlen, if_pos ⟨hd', hlen⟩]
+    · rw [if_neg hlen, if_neg (fun h => hlen h.2)]
+  · have hshort : (conc ρ S).length < i.need := by
+      rw [conc_length]; simp [ensure] at hd; omega
+    unfold Instr.exec
+    simp only [hav, if_true, stackOp_none_of_short hshort, Option.bind_none]
+    rw [if_neg]
+    intro h; apply hd; simpa [sstep] using h.1
+
 end EvmOpt

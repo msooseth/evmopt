@@ -164,12 +164,18 @@ rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
   of its `StepRunning` rule incl. dynamic gas (memory expansion, cold SLOAD surcharge, KECCAK
   words) and pc; `xstep`/`xrun_sound`: `xrun b s = some s'` ⇒ `Steps s s'`.
 - [todo] SSTORE (net-metered gas, refunds, sentry): barrier for now.
-- [todo] Gas: dynamic costs (memory expansion, SSTORE cases, warm/cold SLOAD per the spec,
-  KECCAK per word). `cost` becomes state-dependent; the checker must show the candidate's
-  cost ≤ the original's on every state where the original runs, or restrict to rewrites
-  that keep the effect sequence identical.
-- [todo] SFS: ordered effect list (stores with symbolic address/value terms) plus load
-  terms that name the effect prefix they read from; `srun_run` extended to it.
+- [done] Effect-preserving milestone (`MemLift.lean`): symbolic state = stack terms + ordered
+  effect list (op, argument terms) + static gas; load/KECCAK results are `Term.eff i`.
+  `effRun` replays the effects; each op factored into gas-free `apply` + `costAt`, so
+  `xsrun_xrun` (concrete run = symbolic prediction, exact failure conditions) needs no gas
+  formula: equal effect lists give equal effect gas. `xcheck` (same normalised effects,
+  stack result, depth/slack, ≤ static gas); `xcheck_sound`, `xcheck_steps` (end-to-end on
+  `Steps`). TSTORE excluded symbolically (changes `accountMap`).
+- [todo] Candidate generation for effect blocks (greedy emitting effects in order) and
+  frontend: blocks no longer cut at MLOAD/MSTORE/MSTORE8/SLOAD/TLOAD/KECCAK256.
+- [todo] Effect-changing rewrites (next milestone): dynamic gas comparison (memory expansion
+  telescopes to the final high-water mark; SLOAD cold surcharge depends on the key set) and
+  final-state equality up to the access list's membership.
 - [todo] Normaliser/checker rules, each proven: load-after-store forwarding with
   provably equal / provably disjoint addresses (constant offsets with 32-byte ranges for
   memory; MSTORE8 single byte), dead-store elimination, `store(k, load(k))` removal, KECCAK

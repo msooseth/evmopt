@@ -1,5 +1,6 @@
 import Lean.Data.Json
 import EvmOpt.Asm
+import EvmOpt.XOpt
 
 namespace EvmOpt
 open Lean EvmSemantics EvmSemantics.EVM
@@ -107,6 +108,41 @@ def counterexample (f : Fork) (b b' : Block) (tries : Nat := 300) :
     let stk := randStack (UInt64.ofNat (t * 104729 + 17)) 40
     match run f default b stk with
     | some r => if run f default b' stk = some r then none else some (stk, r, run f default b' stk)
+    | none => none
+
+
+def randBytes (seed : UInt64) (n : Nat) : ByteArray :=
+  ⟨((List.range n).map fun i => (mix (seed + UInt64.ofNat (i * 2654435761 + 7))).toUInt8).toArray⟩
+
+/-- A frame with random stack and memory; small offsets are common in the test values. -/
+def randFrame (f : Fork) (seed : UInt64) : State :=
+  { (default : State) with
+    stack := randStack seed 40
+    memory := randBytes (mix seed) 512
+    activeWords := UInt256.ofNat 16
+    gasAvailable := 10 ^ 12
+    executionEnv := { (default : ExecutionEnv) with fork := f } }
+
+def padTo (n : Nat) (b : ByteArray) : List UInt8 := b.toList ++ List.replicate (n - b.size) 0
+
+/-- Differences between two final frames that matter semantically. -/
+def frameDiff (s1 s2 : State) : Option String :=
+  let n := max s1.memory.size s2.memory.size
+  if s1.stack != s2.stack then some "stack"
+  else if padTo n s1.memory != padTo n s2.memory then some "memory"
+  else if s1.activeWords != s2.activeWords then some "memory size (MSIZE/gas)"
+  else none
+
+/-- A random frame on which `b` runs but `b'` ends differently. -/
+def xcounterexample (f : Fork) (b b' : XBlock) (tries : Nat := 200) :
+    Option (String × List UInt256) :=
+  (List.range tries).findSome? fun t =>
+    let s := randFrame f (UInt64.ofNat (t * 104729 + 17))
+    match xrun f b s with
+    | some s1 =>
+      match xrun f b' s with
+      | some s2 => (frameDiff s1 s2).map fun d => (d, s.stack.take 6)
+      | none => some ("candidate fails", s.stack.take 6)
     | none => none
 
 end EvmOpt

@@ -129,3 +129,10 @@ def xopt (s : String) (f : Fork := .Cancun) : String :=
 #guard !xcheck .Cancun (xblk "PUSH0 MLOAD POP") (xblk "")
 #guard !xcheck .Cancun (xblk "PUSH0 SLOAD PUSH1 0x01 SLOAD") (xblk "PUSH1 0x01 SLOAD PUSH0 SLOAD SWAP1")
 #guard xcheck .Cancun (xblk "PUSH0 MLOAD DUP1 ADD") (xblk "PUSH0 MLOAD DUP1 ADD")
+-- concrete differential on effect blocks catches overlap-unaware store-to-load forwarding
+#guard (xcounterexample .Cancun
+  (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x10 MSTORE PUSH0 MLOAD")
+  (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x10 MSTORE DUP1")).isSome
+#guard (xcounterexample .Cancun
+  (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x20 MSTORE PUSH0 MLOAD")
+  (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x20 MSTORE DUP1")).isNone

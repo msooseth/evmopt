@@ -42,6 +42,7 @@ def loadJson (path : String) : IO Lean.Json := do
   | .error e => throw (IO.userError s!"{path}: {e}")
 
 def showBlock (b : Block) : String := " ".intercalate (b.map Instr.show)
+def showX (b : XBlock) : String := " ".intercalate (b.map XInstr.show)
 
 /-- Validate gasol's optimised asm against the original, block by block. -/
 def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
@@ -53,6 +54,8 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
   let mut nMixed := 0; let mut nMis := 0; let mut gasBefore := 0; let mut gasAfter := 0
   let mut gOrig := 0; let mut gGasol := 0; let mut gOurs := 0
   let mut oursBetter := 0; let mut gasolBetter := 0
+  let mut nEff := 0; let mut nEffSame := 0; let mut nEffOk := 0; let mut nEffBad := 0
+  let mut nEffUnval := 0
   for (name, codesO) in co do
     let some codesG := cg.lookup name | continue
     for (ao, ag) in codesO.zip codesG do
@@ -88,10 +91,25 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
               IO.println s!"  input (top first): {stk.take 8}"
               IO.println s!"  orig result: {r.take 8}"
               IO.println s!"  gasol result: {r'.map (·.take 8)}"
-        | _, _ => nMixed := nMixed + 1
+        | _, _ =>
+          match effectBlock (body xo), effectBlock (body xg) with
+          | some b, some b' =>
+            nEff := nEff + 1
+            if b == b' then nEffSame := nEffSame + 1
+            else if xcheck f b b' then nEffOk := nEffOk + 1
+            else match xcounterexample f b b' with
+              | some (what, stk) =>
+                nEffBad := nEffBad + 1
+                IO.println s!"[WRONG effect block: {what}] input top {stk}"
+                IO.println s!"  orig:  {showX b}"
+                IO.println s!"  gasol: {showX b'}"
+              | none => nEffUnval := nEffUnval + 1
+          | _, _ => nMixed := nMixed + 1
   IO.println s!"blocks: unchanged {nSame}, validated {nOk} (gas {gasBefore} -> {gasAfter}), \
     rejected {nRej} (with concrete counterexample: {nBug}), non-stack {nMixed}, \
     code-level block-count mismatches {nMis}"
+  IO.println s!"effect blocks: {nEff} (unchanged {nEffSame}, validated {nEffOk}, \
+    wrong {nEffBad}, effects changed and no counterexample found {nEffUnval})"
   IO.println s!"stack-only blocks gas: original {gOrig}, gasol (validated only) {gGasol}, \
     ours {gOurs}; ours better on {oursBetter}, gasol better on {gasolBetter}"
 

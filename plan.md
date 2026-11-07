@@ -171,8 +171,14 @@ rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
   formula: equal effect lists give equal effect gas. `xcheck` (same normalised effects,
   stack result, depth/slack, ≤ static gas); `xcheck_sound`, `xcheck_steps` (end-to-end on
   `Steps`). TSTORE excluded symbolically (changes `accountMap`).
-- [todo] Candidate generation for effect blocks (greedy emitting effects in order) and
-  frontend: blocks no longer cut at MLOAD/MSTORE/MSTORE8/SLOAD/TLOAD/KECCAK256.
+- [done] Candidate generation for effect blocks (`XOpt.lean`): per-segment `optimizeBlock`
+  and `xgreedy` (effects emitted in order, CSE across them), both validated by `xcheck`;
+  `optimizeX_sound`. Frontend no longer cuts blocks at MLOAD MSTORE MSTORE8 SLOAD TLOAD
+  KECCAK256 (TSTORE still a barrier). Corpus (30 contracts): stack-op gas saved 7333 ->
+  10462 (-3.6%), 32 s wall on 16 cores.
+- [todo] gasolcmp on effect blocks: `xcheck` for gasol's effect-preserving rewrites, and a
+  concrete differential (random frames incl. memory/storage, `xrun`) for the rest, to
+  confirm or refute `gasol-bugs.md` 16-19.
 - [todo] Effect-changing rewrites (next milestone): dynamic gas comparison (memory expansion
   telescopes to the final high-water mark; SLOAD cold surcharge depends on the key set) and
   final-state equality up to the access list's membership.

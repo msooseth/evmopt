@@ -4,7 +4,7 @@ import EvmOpt.Asm
 open EvmOpt EvmSemantics EvmSemantics.EVM
 
 def blk (s : String) : Block :=
-  (parseBlock s).filterMap fun | .ins i => some i | .other _ => none
+  (parseBlock s).filterMap fun | .ins (.base i) => some i | _ => none
 
 def opt (s : String) (f : Fork := .Cancun) : String :=
   " ".intercalate ((peephole f (blk s)).map Instr.show)
@@ -113,3 +113,19 @@ def sopt (s : String) (f : Fork := .Cancun) : String :=
 #guard ok "PUSH1 0x01 SWAP1 SHL SWAP1 DIV" "SHR"
 #guard sopt "SUB ISZERO" = "EQ"
 #guard sopt "XOR ISZERO" = "EQ"
+
+-- effect blocks: stack code around memory/storage ops is optimised, effects keep their order
+def xblk (s : String) : XBlock :=
+  (parseBlock s).filterMap fun | .ins x => some x | _ => none
+
+def xopt (s : String) (f : Fork := .Cancun) : String :=
+  " ".intercalate ((optimizeX f (xblk s)).map XInstr.show)
+
+#guard xopt "CALLER PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 KECCAK256 SLOAD DUP1 PUSH1 0x01 ADD SWAP1 POP"
+  = "CALLER PUSH0 MSTORE PUSH1 0x20 PUSH0 KECCAK256 SLOAD PUSH1 0x01 ADD"
+#guard xopt "PUSH1 0x08 SLOAD SWAP1 MLOAD SWAP1 DUP2 MSTORE SWAP1 DUP2 SWAP1 PUSH1 0x20 DUP3 ADD SWAP1"
+  = "PUSH1 0x08 SLOAD SWAP1 MLOAD SWAP1 DUP2 MSTORE DUP1 PUSH1 0x20 ADD DUP2 SWAP3"
+-- effects may not be dropped or reordered (milestone 1)
+#guard !xcheck .Cancun (xblk "PUSH0 MLOAD POP") (xblk "")
+#guard !xcheck .Cancun (xblk "PUSH0 SLOAD PUSH1 0x01 SLOAD") (xblk "PUSH1 0x01 SLOAD PUSH0 SLOAD SWAP1")
+#guard xcheck .Cancun (xblk "PUSH0 MLOAD DUP1 ADD") (xblk "PUSH0 MLOAD DUP1 ADD")

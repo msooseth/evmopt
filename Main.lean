@@ -18,7 +18,7 @@ def optimizeFile (f : Fork) (path : String) : IO Unit := do
 
 def checkPair (f : Fork) (a b : String) : IO UInt32 := do
   let parse (s : String) : Option Block :=
-    (parseBlock s).mapM fun | .ins i => some i | .other _ => none
+    (parseBlock s).mapM fun | .ins (.base i) => some i | _ => none
   match parse a, parse b with
   | some x, some y =>
     let ok := check f x y

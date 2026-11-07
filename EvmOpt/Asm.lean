@@ -1,4 +1,4 @@
-import EvmOpt.Search
+import EvmOpt.XOpt
 
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
@@ -6,7 +6,7 @@ open EvmSemantics EvmSemantics.EVM
 /-- An assembly item: a supported straight-line instruction, or anything else (kept verbatim
     and treated as a barrier). -/
 inductive Item
-  | ins (i : Instr)
+  | ins (i : XInstr)
   | other (s : String)
   deriving Repr, Inhabited
 
@@ -53,6 +53,16 @@ def opName? (s : String) : Option Instr :=
     | some o => some (.op o)
     | none => (envNames.lookup s).map .env
 
+/-- Effect ops handled in blocks (TSTORE stays a barrier: not handled symbolically). -/
+def memNames : List (String × MemOp) :=
+  [("MLOAD", .MLOAD), ("MSTORE", .MSTORE), ("MSTORE8", .MSTORE8), ("SLOAD", .SLOAD),
+   ("TLOAD", .TLOAD), ("KECCAK256", .KECCAK256), ("SHA3", .KECCAK256)]
+
+def xopName? (s : String) : Option XInstr :=
+  match opName? s with
+  | some i => some (.base i)
+  | none => (memNames.lookup s).map .mem
+
 def pseudoPushArgs : List String := ["[tag]", "#[$]", "[$]", "data", "$"]
 
 mutual
@@ -61,13 +71,13 @@ partial def pushAsm (v : String) (rest : List String) : List Item :=
   match parseNum (if v.startsWith "0x" then v else "0x" ++ v) with
   | some n =>
     let bs := natBytes n
-    if bs.length ≤ 32 then .ins (.push (if bs.isEmpty then [0] else bs)) :: parseTokens rest
+    if bs.length ≤ 32 then .ins (.base (.push (if bs.isEmpty then [0] else bs))) :: parseTokens rest
     else .other s!"PUSH {v}" :: parseTokens rest
   | none => .other s!"PUSH {v}" :: parseTokens rest
 
 partial def parseTokens : List String → List Item
   | [] => []
-  | "PUSH0" :: rest => .ins (.push []) :: parseTokens rest
+  | "PUSH0" :: rest => .ins (.base (.push [])) :: parseTokens rest
   | "PUSH" :: kind :: v :: rest =>
     if pseudoPushArgs.contains kind then .other s!"PUSH {kind} {v}" :: parseTokens rest
     else pushAsm kind (v :: rest)
@@ -77,11 +87,11 @@ partial def parseTokens : List String → List Item
       match (String.ofList (t.toList.drop 4)).toNat?, rest with
       | some k, v :: rest' =>
         match parseNum v >>= fixedBytes k with
-        | some bs => if 1 ≤ k ∧ k ≤ 32 then .ins (.push bs) :: parseTokens rest'
+        | some bs => if 1 ≤ k ∧ k ≤ 32 then .ins (.base (.push bs)) :: parseTokens rest'
                      else .other s!"{t} {v}" :: parseTokens rest'
         | none => .other s!"{t} {v}" :: parseTokens rest'
       | _, _ => .other t :: parseTokens rest
-    else match opName? t with
+    else match xopName? t with
       | some i => .ins i :: parseTokens rest
       | none => .other t :: parseTokens rest
 end
@@ -103,12 +113,16 @@ def Instr.show : Instr → String
   | .op o => ((arithNames.find? (·.2 == o)).map (·.1)).getD "?"
   | .env e => ((envNames.find? (·.2 == e)).map (·.1)).getD "?"
 
+def XInstr.show : XInstr → String
+  | .base i => i.show
+  | .mem m => ((memNames.find? (·.2 == m)).map (·.1)).getD "?"
+
 def Item.show : Item → String
   | .ins i => i.show
   | .other s => s
 
 /-- Maximal runs of supported instructions, separated by barriers. -/
-def runs : List Item → List (Sum Block String)
+def runs : List Item → List (Sum XBlock String)
   | [] => []
   | .other s :: rest => .inr s :: runs rest
   | .ins i :: rest =>
@@ -118,11 +132,11 @@ def runs : List Item → List (Sum Block String)
 
 def optimizeItems (f : Fork) (items : List Item) : List Item :=
   (runs items).flatMap fun
-    | .inl b => (optimizeBlock f b).map .ins
+    | .inl b => (optimizeX f b).map .ins
     | .inr s => [.other s]
 
 def itemsCost (f : Fork) (items : List Item) : Nat :=
-  (runs items).foldl (fun acc r => match r with | .inl b => acc + cost f b | .inr _ => acc) 0
+  (runs items).foldl (fun acc r => match r with | .inl b => acc + xcost f b | .inr _ => acc) 0
 
 def itemsSize (items : List Item) : Nat :=
   items.foldl (fun acc i => match i with | .ins i => acc + i.size | .other _ => acc) 0

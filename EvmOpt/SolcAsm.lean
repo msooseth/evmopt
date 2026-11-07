@@ -14,11 +14,11 @@ def solcItem (f : Fork) (j : Json) : Item :=
     | some n =>
       let bs := natBytes n
       if bs.length ≤ 32 then
-        .ins (.push (if bs.isEmpty && !push0Ok f then [0] else bs))
+        .ins (.base (.push (if bs.isEmpty && !push0Ok f then [0] else bs)))
       else .other s!"PUSH {value.getD ""}"
     | none => .other s!"PUSH {value.getD ""}"
-  else if name = "PUSH0" then .ins (.push [])
-  else match opName? name, value with
+  else if name = "PUSH0" then .ins (.base (.push []))
+  else match xopName? name, value with
     | some i, none => .ins i
     | _, some v => .other s!"{name} {v}"
     | _, none => .other name
@@ -61,7 +61,10 @@ def splitBlocks (items : List Item) : List (List Item) :=
   (if cur.isEmpty then done else cur.reverse :: done).reverse
 
 def stackOnly (b : List Item) : Option Block :=
-  b.mapM fun | .ins i => some i | .other _ => none
+  b.mapM fun | .ins (.base i) => some i | _ => none
+
+def effectBlock (b : List Item) : Option XBlock :=
+  b.mapM fun | .ins x => some x | .other _ => none
 
 /-- Strip a leading tag/JUMPDEST and trailing jump/halt so the stack-only body remains. -/
 def body (b : List Item) : List Item :=

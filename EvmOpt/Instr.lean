@@ -32,7 +32,7 @@ open EvmSemantics EvmSemantics.EVM
 inductive ArithOp
   | ADD | MUL | SUB | DIV | SDIV | MOD | SMOD | ADDMOD | MULMOD | SIGNEXTEND
   | LT | GT | SLT | SGT | EQ | ISZERO | AND | OR | XOR | NOT | BYTE | SHL | SHR | SAR | CLZ
-  deriving DecidableEq, Repr, Inhabited
+  deriving DecidableEq, Repr, Inhabited, Ord
 
 namespace ArithOp
 

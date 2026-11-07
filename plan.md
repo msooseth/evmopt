@@ -41,45 +41,55 @@ Lake project `EvmOpt` requiring `evm-semantics` (local path).
 - [done] `run_sound`: `run B s.stack = some stk'` + gas ⇒ `Steps s (blockPost s B stk')`.
 - [todo] Differential test of `run` vs. iterated `stepF` on random blocks/stacks.
 
-### 2. Symbolic lift (SFS) [wip]
+### 2. Symbolic lift (SFS) [done]
 - [done] `Term` (vars, consts, `app1/2/3`), symbolic stack `SState` (terms, input depth,
   stack-limit slack), `sstep`, `srun`, `lift`.
-- [todo] `srun_run`: concrete `run` on `conc stk S` = `conc stk` of the symbolic result,
+- [done] `srun_run`: concrete `run` on `conc stk S` = `conc stk` of the symbolic result,
   with exactly matching underflow/overflow conditions.
 
-### 3. Trusted checker [todo]
-- [todo] `check f B B'`: normalised terms equal (padding the shallower side with vars),
+### 3. Trusted checker [done]
+- [done] `check f B B'`: normalised terms equal (padding the shallower side with vars),
   `d' ≤ d`, slack condition, `cost B' ≤ cost B`.
-- [todo] `check_sound`: `check = true` ∧ `run B stk = some r` ⇒ `run B' stk = some r`;
+- [done] `check_sound`: `check = true` ∧ `run B stk = some r` ⇒ `run B' stk = some r`;
   composed with `run_sound` this is the guarantee above.
-- [todo] `optimize f B := if check f B (rewrite B) then rewrite B else B`.
+- [done] `optimizeWith_steps` (end-to-end on `Steps`); `Checks.lean` pins axioms.
+- [done] `optimizeWith f rw B := if check f B (rewrite B) then rewrite B else B`.
 
-### 4. Normaliser rules (each proven eval-preserving) [todo]
+### 4. Normaliser rules (each proven eval-preserving) [wip]
 gasol's SFS rules (`sfs_generator/gasol_optimization.py`), `X` = any term:
-- [todo] constant folding of every `ArithOp` on constant args (gasol `EVAL`)
-- [todo] `ADD(X,0) → X`
-- [todo] `SUB(X,0) → X`
-- [todo] `SUB(X,X) → 0`
-- [todo] `MUL(X,1) → X`
-- [todo] `MUL(X,0) → 0`
-- [todo] `MOD(X,X) → 0`
-- [todo] `MOD(X,1) → 0`
-- [todo] `MOD(X,0) → 0`
-- [todo] `AND(X,X) → X`
-- [todo] `AND(X,0) → 0`
-- [todo] `AND(X,2^256-1) → X`
-- [todo] `OR(X,X) → X`
-- [todo] `OR(X,0) → X`
-- [todo] `XOR(X,X) → 0`
-- [todo] `XOR(X,0) → X`
-- [todo] `EQ(X,X) → 1`
-- [todo] `LT(X,0) → 0`
-- [todo] `GT(0,X) → 0`
-- [todo] `ISZ(0) → 1`, `ISZ(1) → 0` (subsumed by folding)
-- [todo] `NOT(NOT(X)) → X` and gasol's other `NOT(X)` forms
-- [todo] `ISZERO(ISZERO(ISZERO(X))) → ISZERO(X)`
-- [todo] commutative argument ordering (ADD, MUL, AND, OR, XOR, EQ)
-- [todo] `GT(X,Y) ↔ LT(Y,X)`, `SGT(X,Y) ↔ SLT(Y,X)` canonical form
+- [done] constant folding of every `ArithOp` on constant args (gasol `EVAL`)
+- [done] `ADD(X,0) → X`
+- [done] `SUB(X,0) → X`
+- [done] `SUB(X,X) → 0`
+- [done] `MUL(X,1) → X`
+- [done] `MUL(X,0) → 0`
+- [done] `MOD(X,X) → 0`
+- [done] `MOD(X,1) → 0`
+- [done] `MOD(X,0) → 0`
+- [done] `AND(X,X) → X`
+- [done] `AND(X,0) → 0`
+- [done] `AND(X,2^256-1) → X`
+- [done] `OR(X,X) → X`
+- [done] `OR(X,0) → X`
+- [done] `XOR(X,X) → 0`
+- [done] `XOR(X,0) → X`
+- [done] `EQ(X,X) → 1`
+- [done] `LT(X,0) → 0`
+- [done] `GT(0,X) → 0`
+- [done] `ISZ(0) → 1`, `ISZ(1) → 0` (subsumed by folding)
+- [done] `NOT(NOT(X)) → X`
+- [done] `ISZERO(ISZERO(ISZERO(X))) → ISZERO(X)`
+- [done] commutative argument ordering (ADD, MUL, AND, OR, XOR, EQ)
+- [done] `GT(X,Y) ↔ LT(Y,X)`, `SGT(X,Y) ↔ SLT(Y,X)` canonical form
+- [done] `DIV(X,1) → X`, `LT(X,X)`/`GT(X,X)`/`SLT(X,X)`/`SGT(X,X)` → 0
+- [todo] gasol type-2 rules: `ISZ(GT(X,0)) → ISZ(X)`, `GT(1,X) → ISZ(X)`, `LT(X,1) → ISZ(X)`,
+  `EQ(0,X) → ISZ(X)`, `EQ(1,ISZ(X)) → ISZ(X)`, `ISZ(LT(0,X)) → ISZ(X)`, `ISZ(XOR(X,Y)) → EQ`,
+  `ISZ(SUB(X,Y)) → EQ`, `AND(X,AND(X,Y))`, `OR(X,AND(X,Y)) → X`, `AND(X,OR(X,Y)) → X`,
+  `OR(OR(X,Y),Y)`, `XOR(X,XOR(X,Y)) → Y`, `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`,
+  `MUL(X,SHL(Y,1)) → SHL(Y,X)`, `DIV(X,SHL(Y,1)) → SHR(Y,X)`, `AND(SHL(X,Y),SHL(X,Z))`
+- [todo] `SHL(0,X) → X`, `SHR(0,X) → X`, `SHL(X,0) → 0`, `SHR(X,0) → 0` (correct versions of
+  gasol's buggy rules, see `gasol-bugs.md` 1-2)
+- not taken: gasol's `DIV(X,X) → 1` / `SDIV(X,X) → 1` (unsound, `gasol-bugs.md` 3)
 - (EXP rules `EXP(X,0)`, `EXP(X,1)`, `EXP(1,X)` wait for EXP support)
 
 ### 5. Peephole rewriter (untrusted) [todo]

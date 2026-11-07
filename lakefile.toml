@@ -1,6 +1,6 @@
 name = "evm_opt"
 version = "0.1.0"
-defaultTargets = ["EvmOpt"]
+defaultTargets = ["EvmOpt", "Checks"]
 leanOptions = { autoImplicit = false, relaxedAutoImplicit = false }
 
 [[require]]
@@ -9,3 +9,6 @@ path = "evm-semantics"
 
 [[lean_lib]]
 name = "EvmOpt"
+
+[[lean_lib]]
+name = "Checks"

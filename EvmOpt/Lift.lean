@@ -3,22 +3,22 @@ import EvmOpt.Term
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
 
-theorem conc_length (σ : State) (stk : List UInt256) (S : SState) :
-    (conc σ stk S).length = S.ts.length + (stk.length - S.d) := by
+theorem conc_length (ρ : Ctx) (S : SState) :
+    (conc ρ S).length = S.ts.length + (ρ.stk.length - S.d) := by
   simp [conc]
 
-theorem vars_eval (σ : State) (stk : List UInt256) (a n : Nat) (h : a + n ≤ stk.length) :
-    (vars a n).map (·.eval σ stk) = (stk.drop a).take n := by
+theorem vars_eval (ρ : Ctx) (a n : Nat) (h : a + n ≤ ρ.stk.length) :
+    (vars a n).map (·.eval ρ) = (ρ.stk.drop a).take n := by
   apply List.ext_getElem
   · simp [vars]; omega
   · intro j h1 h2
     simp [vars, Term.eval] at h1 ⊢
-    simp [List.getElem?_eq_getElem (by omega : a + j < stk.length)]
+    simp [List.getElem?_eq_getElem (by omega : a + j < ρ.stk.length)]
 
-theorem conc_ensure (σ : State) (stk : List UInt256) (S : SState) (k : Nat)
-    (h : S.d + (k - S.ts.length) ≤ stk.length) : conc σ stk (ensure k S) = conc σ stk S := by
+theorem conc_ensure (ρ : Ctx) (S : SState) (k : Nat)
+    (h : S.d + (k - S.ts.length) ≤ ρ.stk.length) : conc ρ (ensure k S) = conc ρ S := by
   simp only [conc, ensure, List.map_append, List.append_assoc]
-  rw [vars_eval σ stk _ _ h, ← List.drop_drop, List.take_append_drop]
+  rw [vars_eval ρ _ _ h, ← List.drop_drop, List.take_append_drop]
 
 theorem ensure_length (k : Nat) (S : SState) : k ≤ (ensure k S).ts.length := by
   simp [ensure, vars]; omega
@@ -49,15 +49,15 @@ theorem stackOp_none_of_short {σ : State} {i : Instr} {l : List UInt256} (h : l
   | env e => simp [Instr.stackOp, Instr.need] at h ⊢; omega
 
 /-- With at least `i.need` symbolic items on top, `stackOp` acts on the symbolic part. -/
-theorem stackOp_conc (σ : State) (stk : List UInt256) (S : SState) (i : Instr)
+theorem stackOp_conc (ρ : Ctx) (S : SState) (i : Instr)
     (hs : i.need ≤ S.ts.length) (hw : ∀ bs, i = .push bs → bs.length ≤ 32) :
-    i.stackOp σ (conc σ stk S) = some (conc σ stk { S with ts := i.sym S.ts }) := by
+    i.stackOp ρ.σ (conc ρ S) = some (conc ρ { S with ts := i.sym S.ts }) := by
   simp only [conc]
   cases i with
   | push bs => simp [Instr.stackOp, Instr.sym, hw bs rfl, Term.eval]
   | dup n =>
     simp only [Instr.need] at hs
-    have h1 : n.val < (S.ts.map (·.eval σ stk)).length := by simp; omega
+    have h1 : n.val < (S.ts.map (·.eval ρ)).length := by simp; omega
     simp [Instr.stackOp, Instr.sym, List.getElem?_append_left h1,
       List.getElem?_eq_getElem (by omega : n.val < S.ts.length)]
   | swap n =>
@@ -77,20 +77,20 @@ theorem stackOp_conc (σ : State) (stk : List UInt256) (S : SState) (i : Instr)
     · simp [Instr.stackOp, Instr.sym]
   | op o =>
     simp only [Instr.need] at hs
-    have hl : o.arity ≤ (S.ts.map (·.eval σ stk) ++ stk.drop S.d).length := by simp; omega
+    have hl : o.arity ≤ (S.ts.map (·.eval ρ) ++ ρ.stk.drop S.d).length := by simp; omega
     simp only [Instr.stackOp, Instr.sym, if_pos hl, List.map_cons, Option.some.injEq,
       List.cons_append, List.cons.injEq]
     refine ⟨?_, ?_⟩
-    · rw [mkApp_eval _ _ _ _ hs, ArithOp.eval_take, List.take_append_of_le_length (by simpa using hs),
+    · rw [mkApp_eval _ _ _ hs, ArithOp.eval_take, List.take_append_of_le_length (by simpa using hs),
         ← ArithOp.eval_take]
     · rw [List.drop_append_of_le_length (by simpa using hs), List.map_drop]
   | env e =>
     simp only [Instr.need] at hs
-    have hl : e.arity ≤ (S.ts.map (·.eval σ stk) ++ stk.drop S.d).length := by simp; omega
+    have hl : e.arity ≤ (S.ts.map (·.eval ρ) ++ ρ.stk.drop S.d).length := by simp; omega
     simp only [Instr.stackOp, Instr.sym, if_pos hl, List.map_cons, Option.some.injEq,
       List.cons_append, List.cons.injEq]
     refine ⟨?_, ?_⟩
-    · rw [mkEnv_eval _ _ _ _ hs, EnvOp.eval_take, List.take_append_of_le_length (by simpa using hs),
+    · rw [mkEnv_eval _ _ _ hs, EnvOp.eval_take, List.take_append_of_le_length (by simpa using hs),
         ← EnvOp.eval_take]
     · rw [List.drop_append_of_le_length (by simpa using hs), List.map_drop]
 
@@ -118,15 +118,15 @@ theorem exec_none_of_not_static {f : Fork} {σ : State} {i : Instr} {l : List UI
       intro h'; omega
     | _ => simp_all [Instr.static]
 
-/-- **Lift correctness.** Running `b` concretely on `conc σ stk S` is exactly the symbolic
+/-- **Lift correctness.** Running `b` concretely on `conc ρ S` is exactly the symbolic
     result, under exactly the depth/slack conditions computed by `srun`. -/
-theorem srun_run (f : Fork) (σ : State) (stk : List UInt256) : ∀ (b : Block) (S : SState),
-    S.d ≤ stk.length → (stk.length : Int) - S.d ≤ S.slack →
-    run f σ b (conc σ stk S) =
+theorem srun_run (f : Fork) (ρ : Ctx) : ∀ (b : Block) (S : SState),
+    S.d ≤ ρ.stk.length → (ρ.stk.length : Int) - S.d ≤ S.slack →
+    run f ρ.σ b (conc ρ S) =
       match srun f b S with
       | none => none
-      | some S' => if S'.d ≤ stk.length ∧ (stk.length : Int) - S'.d ≤ S'.slack
-                   then some (conc σ stk S') else none := by
+      | some S' => if S'.d ≤ ρ.stk.length ∧ (ρ.stk.length : Int) - S'.d ≤ S'.slack
+                   then some (conc ρ S') else none := by
   intro b
   induction b with
   | nil => intro S h1 h2; simp [run, srun, h1, h2]
@@ -134,22 +134,22 @@ theorem srun_run (f : Fork) (σ : State) (stk : List UInt256) : ∀ (b : Block) 
     intro S h1 h2
     simp only [run, srun]
     cases hst : i.static f
-    · simp [exec_none_of_not_static (σ := σ) hst]
+    · simp [exec_none_of_not_static (σ := ρ.σ) hst]
     · simp only [if_true]
       have hw : ∀ bs, i = .push bs → bs.length ≤ 32 := by
         rintro bs rfl; simp [Instr.static] at hst; exact hst.2
       have hav : i.toOp.availableInFork f = true := by
         simp only [Instr.static, Bool.and_eq_true] at hst; exact hst.1
-      by_cases hd : (ensure i.need S).d ≤ stk.length
-      · have hce := conc_ensure σ stk S i.need (by simpa [ensure] using hd)
-        have hso := stackOp_conc σ stk (ensure i.need S) i (ensure_length _ _) hw
+      by_cases hd : (ensure i.need S).d ≤ ρ.stk.length
+      · have hce := conc_ensure ρ S i.need (by simpa [ensure] using hd)
+        have hso := stackOp_conc ρ (ensure i.need S) i (ensure_length _ _) hw
         rw [hce] at hso
-        have hconc : conc σ stk { ensure i.need S with ts := i.sym (ensure i.need S).ts } =
-            conc σ stk (sstep i S) := rfl
+        have hconc : conc ρ { ensure i.need S with ts := i.sym (ensure i.need S).ts } =
+            conc ρ (sstep i S) := rfl
         rw [hconc] at hso
         unfold Instr.exec
         simp only [hav, if_true, hso, Option.bind_some]
-        by_cases hlen : (conc σ stk (sstep i S)).length ≤ 1024
+        by_cases hlen : (conc ρ (sstep i S)).length ≤ 1024
         · rw [if_pos hlen, Option.bind_some]
           apply ih
           · simpa [sstep] using hd
@@ -166,7 +166,7 @@ theorem srun_run (f : Fork) (σ : State) (stk : List UInt256) : ∀ (b : Block) 
             dsimp only
             rw [if_neg]
             omega
-      · have hshort : (conc σ stk S).length < i.need := by
+      · have hshort : (conc ρ S).length < i.need := by
           rw [conc_length]; simp [ensure] at hd; omega
         unfold Instr.exec
         simp only [hav, if_true, stackOp_none_of_short hshort, Option.bind_none]

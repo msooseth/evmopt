@@ -14,20 +14,21 @@ def check (f : Fork) (b b' : Block) : Bool :=
     (S.ts.map norm == (S'.ts ++ vars S'.d (S.d - S'.d)).map norm)
   | _, _ => false
 
-theorem conc_init (σ : State) (stk : List UInt256) : conc σ stk SState.init = stk := by
+theorem conc_init (ρ : Ctx) : conc ρ SState.init = ρ.stk := by
   simp [conc, SState.init]
 
 theorem run_lift {f : Fork} {σ : State} {b : Block} {stk : List UInt256} (hl : stk.length ≤ 1024) :
     run f σ b stk = match lift f b with
       | none => none
       | some S => if S.d ≤ stk.length ∧ (stk.length : Int) - S.d ≤ S.slack
-                  then some (conc σ stk S) else none := by
-  have := srun_run f σ stk b SState.init (by simp [SState.init]) (by simp [SState.init]; omega)
+                  then some (conc ⟨σ, stk, []⟩ S) else none := by
+  have := srun_run f ⟨σ, stk, []⟩ b SState.init (by simp [SState.init])
+    (by simp [SState.init]; omega)
   rwa [conc_init] at this
 
-theorem map_eval_of_norm {σ : State} {stk : List UInt256} {l1 l2 : List Term}
-    (h : l1.map norm = l2.map norm) : l1.map (·.eval σ stk) = l2.map (·.eval σ stk) := by
-  have e : ∀ l : List Term, l.map (·.eval σ stk) = (l.map norm).map (·.eval σ stk) := by
+theorem map_eval_of_norm {ρ : Ctx} {l1 l2 : List Term}
+    (h : l1.map norm = l2.map norm) : l1.map (·.eval ρ) = l2.map (·.eval ρ) := by
+  have e : ∀ l : List Term, l.map (·.eval ρ) = (l.map norm).map (·.eval ρ) := by
     intro l; simp [norm_eval]
   rw [e l1, e l2, h]
 
@@ -50,12 +51,12 @@ theorem check_sound {f : Fork} {σ : State} {b b' : Block} {stk r : List UInt256
   simp only
   rw [if_pos ⟨by omega, by omega⟩]
   congr 1
-  have hv := vars_eval σ stk S'.d (S.d - S'.d) (by omega)
+  have hv := vars_eval ⟨σ, stk, []⟩ S'.d (S.d - S'.d) (by simp; omega)
   simp only [conc]
   have hdrop : stk.drop S'.d = (stk.drop S'.d).take (S.d - S'.d) ++ stk.drop S.d := by
     conv => lhs; rw [← List.take_append_drop (S.d - S'.d) (stk.drop S'.d)]
     rw [List.drop_drop]; congr 2; omega
-  rw [hdrop, ← hv, ← List.append_assoc, ← List.map_append, map_eval_of_norm (σ := σ) (stk := stk) hts]
+  rw [hdrop, ← hv, ← List.append_assoc, ← List.map_append, map_eval_of_norm (ρ := ⟨σ, stk, []⟩) hts]
 
 /-- Keep the candidate only if the checker accepts it. -/
 def optimizeWith (f : Fork) (rw : Block → Block) (b : Block) : Block :=

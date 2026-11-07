@@ -3,7 +3,15 @@ import EvmOpt.Sound
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
 
-/-- Symbolic word: `var i` is the `i`-th input stack item (0 = top). -/
+/-- What a term is evaluated against: the frame, the block's input stack, and the results
+    of the block's effects (loads, KECCAK) in order. -/
+structure Ctx where
+  σ : State
+  stk : List UInt256
+  effs : List UInt256 := []
+
+/-- Symbolic word: `var i` is the `i`-th input stack item (0 = top); `eff i` is the result
+    of the block's `i`-th effect. -/
 inductive Term
   | var (i : Nat)
   | const (v : UInt256)
@@ -12,18 +20,20 @@ inductive Term
   | app3 (o : ArithOp) (a b c : Term)
   | env0 (e : EnvOp)
   | env1 (e : EnvOp) (a : Term)
+  | eff (i : Nat)
   deriving DecidableEq, Repr, Inhabited, Ord, Hashable
 
 namespace Term
 
-def eval (σ : State) (stk : List UInt256) : Term → UInt256
-  | var i => stk.getD i 0
+def eval (ρ : Ctx) : Term → UInt256
+  | var i => ρ.stk.getD i 0
   | const v => v
-  | app1 o a => o.eval [a.eval σ stk]
-  | app2 o a b => o.eval [a.eval σ stk, b.eval σ stk]
-  | app3 o a b c => o.eval [a.eval σ stk, b.eval σ stk, c.eval σ stk]
-  | env0 e => e.eval σ []
-  | env1 e a => e.eval σ [a.eval σ stk]
+  | app1 o a => o.eval [a.eval ρ]
+  | app2 o a b => o.eval [a.eval ρ, b.eval ρ]
+  | app3 o a b c => o.eval [a.eval ρ, b.eval ρ, c.eval ρ]
+  | env0 e => e.eval ρ.σ []
+  | env1 e a => e.eval ρ.σ [a.eval ρ]
+  | eff i => ρ.effs.getD i 0
 
 end Term
 
@@ -52,9 +62,9 @@ theorem EnvOp.eval_take (σ : State) (e : EnvOp) (l : List UInt256) :
     e.eval σ l = e.eval σ (l.take e.arity) := by
   cases e <;> rcases l with _ | ⟨a, l⟩ <;> rfl
 
-theorem mkEnv_eval (e : EnvOp) (ts : List Term) (σ : State) (stk : List UInt256)
-    (h : e.arity ≤ ts.length) : (mkEnv e ts).eval σ stk = e.eval σ (ts.map (·.eval σ stk)) := by
-  rw [EnvOp.eval_take σ e (ts.map _)]
+theorem mkEnv_eval (e : EnvOp) (ts : List Term) (ρ : Ctx)
+    (h : e.arity ≤ ts.length) : (mkEnv e ts).eval ρ = e.eval ρ.σ (ts.map (·.eval ρ)) := by
+  rw [EnvOp.eval_take ρ.σ e (ts.map _)]
   have : e.arity = 0 ∨ e.arity = 1 := by cases e <;> simp [EnvOp.arity]
   rcases this with h1 | h1
   · simp [mkEnv, h1, Term.eval]
@@ -62,8 +72,8 @@ theorem mkEnv_eval (e : EnvOp) (ts : List Term) (σ : State) (stk : List UInt256
     · simp [h1] at h
     · simp [mkEnv, h1, Term.eval]
 
-theorem mkApp_eval (o : ArithOp) (ts : List Term) (σ : State) (stk : List UInt256)
-    (h : o.arity ≤ ts.length) : (mkApp o ts).eval σ stk = o.eval (ts.map (·.eval σ stk)) := by
+theorem mkApp_eval (o : ArithOp) (ts : List Term) (ρ : Ctx)
+    (h : o.arity ≤ ts.length) : (mkApp o ts).eval ρ = o.eval (ts.map (·.eval ρ)) := by
   rw [ArithOp.eval_take o (ts.map _)]
   rcases ArithOp.arity_cases o with h1 | h1 | h1 <;>
   · rcases ts with _ | ⟨a, _ | ⟨b, _ | ⟨c, ts⟩⟩⟩ <;> simp_all [mkApp, Term.eval] <;>
@@ -80,8 +90,8 @@ structure SState where
 
 def SState.init : SState := ⟨[], 0, 1024⟩
 
-def conc (σ : State) (stk : List UInt256) (S : SState) : List UInt256 :=
-  S.ts.map (·.eval σ stk) ++ stk.drop S.d
+def conc (ρ : Ctx) (S : SState) : List UInt256 :=
+  S.ts.map (·.eval ρ) ++ ρ.stk.drop S.d
 
 def vars (a n : Nat) : List Term := (List.range n).map fun j => .var (a + j)
 

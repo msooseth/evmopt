@@ -206,6 +206,10 @@ partial def shuffle (cur goal : List Term) (fuel : Nat := 200) : Option (List In
     return i :: rest
   | none => none
 
+/-- Length of the longest common bottom part of two stacks (top first). -/
+def commonBottom (a b : List Term) : Nat :=
+  ((a.reverse.zip b.reverse).takeWhile fun (x, y) => x == y).length
+
 /-- Drop stack items with no remaining use before computing (`POP`, or `SWAPk POP`). -/
 partial def preclean (cur : List Term) (d : Demand) (fuel : Nat := 64) : List Term × List Instr :=
   if fuel = 0 then (cur, []) else
@@ -235,7 +239,7 @@ partial def preclean (cur : List Term) (d : Demand) (fuel : Nat := 64) : List Te
   | [] => ([], [])
 
 /-- Greedy lowering of the block's normalised SFS. -/
-def greedyWith (pre : Bool) (f : Fork) (b : Block) : Option Block := do
+def greedyWith (pre bottom : Bool) (f : Fork) (b : Block) : Option Block := do
   let S ← lift f b
   let goal := S.ts.map norm
   let init := (List.range S.d).map Term.var
@@ -244,21 +248,22 @@ def greedyWith (pre : Bool) (f : Fork) (b : Block) : Option Block := do
   let demand := (distinct.filter fun t => t.instr.isSome).foldl
     (fun d t => t.args.foldl (fun d a => d.insert a (d.get a + 1)) d) d0
   let (init, pre0) := if pre then preclean init demand else (init, [])
-  -- goal terms deepest first, so the shuffle mostly has to drop garbage
-  let (cur, prog, _) ← goal.reverse.foldlM (fun (c, pr, d) t =>
-    if c.contains t then some (c, pr, d) else do
+  -- goal deepest first: either keep the bottom part already in place and build every term
+  -- above it, or skip any term already somewhere on the stack and let the shuffle place it
+  let keep := if bottom then commonBottom init goal else 0
+  let (cur, prog, _) ← (goal.take (goal.length - keep)).reverse.foldlM (fun (c, pr, d) t =>
+      if !bottom && c.contains t then some (c, pr, d) else do
       let (c', p', d') ← emit f t c d
       return (c', pr ++ p', d')) (init, [], demand)
   let fix ← shuffle cur goal
   return pre0 ++ prog ++ fix
 
 def greedy (f : Fork) (b : Block) : Option Block :=
-  let c1 := (greedyWith false f b).filter fun c => check f b c
-  let c2 := (greedyWith true f b).filter fun c => check f b c
-  match c1, c2 with
-  | some x, some y => if score f y < score f x then some y else some x
-  | some x, none => some x
-  | none, y => y
+  [(false, false), (true, false), (false, true), (true, true)].foldl (fun best (pre, bot) =>
+    match (greedyWith pre bot f b).filter (check f b ·), best with
+    | some c, some x => if score f c < score f x then some c else some x
+    | some c, none => some c
+    | none, x => x) none
 
 /-- DUP of an item known to be 0 becomes PUSH0 (2 gas instead of 3). -/
 def dupZero (f : Fork) (b : Block) : Block := Id.run do

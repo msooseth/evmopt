@@ -30,71 +30,172 @@ def segOpt (f : Fork) (b : XBlock) : XBlock :=
     | .inr m => [.mem m]
 
 /-- Greedy lowering that emits the effects in their original order. -/
-def xgreedyWith (pre : Bool) (f : Fork) (b : XBlock) : Option XBlock := do
+def xgreedyWith (pre bottom : Bool) (f : Fork) (b : XBlock) : Option XBlock := do
   let X ← xlift f b
   let goal := X.S.ts.map norm
-  let effs := X.E.map fun e => (e.1, e.2.map norm)
-  let all := goal ++ effs.flatMap (·.2)
+  let effs := (X.E.map fun e => (e.1, e.2.map norm)).toArray
+  let all := goal ++ effs.toList.flatMap (·.2)
   let distinct := (all.flatMap Term.subterms).eraseDups
   let d0 : Demand := all.foldl (fun d t => d.insert t (d.get t + 1)) {}
   let demand := (distinct.filter fun t => t.instr.isSome).foldl
     (fun d t => t.args.foldl (fun d a => d.insert a (d.get a + 1)) d) d0
   let init := (List.range X.S.d).map Term.var
   let (init, pre0) := if pre then preclean init demand else (init, [])
-  let (cur, prog, dem, _) ← effs.foldlM (fun (c, pr, dd, k) (m, args) => do
-    let (c', p', dd', _) ← args.reverse.foldlM (fun (c, pr, dd, first) a => do
-      let (c', p', dd') ← emit f a c dd (if first then .first else .later)
-      return (c', pr ++ p', dd', false)) (c, [], dd, true)
-    let c'' := (if m.pushes then [Term.eff k] else []) ++ c'.drop m.arity
-    return (c'', pr ++ p'.map XInstr.base ++ [XInstr.mem m], dd', k + 1)) (init, [], demand, 0)
-  let (cur, prog2, _) ← goal.reverse.foldlM (fun (c, pr, d) t =>
-    if c.contains t then some (c, pr, d) else do
-      let (c', p', d') ← emit f t c d
-      return (c', pr ++ p', d')) (cur, [], dem)
+  -- emit effects `k .. upto-1` in order
+  let flush := fun (upto : Nat) (st : List Term × List XInstr × Demand × Nat) => do
+    let mut (c, pr, dd, k) := st
+    while k < upto do
+      let (m, args) := effs[k]!
+      let (c', p', dd', _) ← args.reverse.foldlM (fun (c, pr, dd, first) a => do
+        let (c', p', dd') ← emit f a c dd (if first then .first else .later)
+        return (c', pr ++ p', dd', false)) (c, [], dd, true)
+      c := (if m.pushes then [Term.eff k] else []) ++ c'.drop m.arity
+      pr := pr ++ p'.map XInstr.base ++ [XInstr.mem m]
+      dd := dd'
+      k := k + 1
+    return (c, pr, dd, k)
+  -- goal deepest first; an effect is emitted just before the first term that needs it
+  let keep := if bottom then commonBottom init goal else 0
+  let st ← (goal.take (goal.length - keep)).reverse.foldlM (fun st t =>
+      if !bottom && st.1.contains t then some st else do
+      let (c, pr, dd, k) ← flush t.effBound st
+      let (c', p', dd') ← emit f t c dd
+      return (c', pr ++ p'.map XInstr.base, dd', k)) (init, [], demand, 0)
+  let (cur, prog, _, _) ← flush effs.size st
   let fix ← shuffle cur goal
-  return pre0.map XInstr.base ++ prog ++ (prog2 ++ fix).map XInstr.base
+  return pre0.map XInstr.base ++ prog ++ fix.map XInstr.base
 
 def xgreedy (f : Fork) (b : XBlock) : Option XBlock :=
-  let c1 := (xgreedyWith false f b).filter fun c => xcheck f b c
-  let c2 := (xgreedyWith true f b).filter fun c => xcheck f b c
-  match c1, c2 with
-  | some x, some y => if xscore f y < xscore f x then some y else some x
-  | some x, none => some x
-  | none, y => y
+  [(false, false), (true, false), (false, true), (true, true)].foldl (fun best (pre, bot) =>
+    match (xgreedyWith pre bot f b).filter (xcheck f b ·), best with
+    | some c, some x => if xscore f c < xscore f x then some c else some x
+    | some c, none => some c
+    | none, x => x) none
+
+/-- Cheapest-first search for effect blocks: effects only in their original order and only on
+    arguments equal (after normalisation) to the original's. -/
+def xsearch (f : Fork) (b : XBlock) (maxNodes : Nat := 5000) : Option XBlock := Id.run do
+  let some X := xlift f b | return none
+  let target := X.S.ts.map norm
+  let effs := (normE X.E).toArray
+  let all := target ++ effs.toList.flatMap (·.2)
+  let subs : Std.HashMap Term Unit := (all.flatMap Term.subterms).foldl (fun m t => m.insert t ()) {}
+  let consts := (all.flatMap Term.subterms).filterMap fun | .const v => some v | _ => none
+  let ops := ((all.flatMap Term.subterms).filterMap Term.op?).eraseDups
+  let envs := ((all.flatMap Term.subterms).filterMap fun
+    | .env0 e | .env1 e _ => some e | _ => none).eraseDups
+  let pushes := (consts.eraseDups.map (pushOf f)).filter (·.static f)
+  let budget := xcost f b
+  let sizeBudget := xsize b
+  let moves (T : XSState) : List XInstr :=
+    let avail := T.S.ts.length + (X.S.d - T.S.d)
+    (((List.range 16).filterMap fun n =>
+      if h : n < 16 then if n < avail then some (Instr.dup ⟨n, h⟩) else none else none) ++
+    ((List.range 16).filterMap fun n =>
+      if h : n < 16 then if n + 1 < avail then some (Instr.swap ⟨n, h⟩) else none else none) ++
+    (if 0 < avail then [Instr.pop] else []) ++ pushes ++
+    (ops.filterMap fun o => if o.arity ≤ avail then some (Instr.op o) else none) ++
+    (envs.filterMap fun e => if e.arity ≤ avail then some (Instr.env e) else none)).map .base ++
+    (match effs[T.E.length]? with
+     | some (m, _) => if m.arity ≤ avail then [.mem m] else []
+     | none => [])
+  let useful (x : XInstr) (T : XSState) : Bool :=
+    match x with
+    | .base (.op _) | .base (.env _) => match T.S.ts.head? with
+      | some t => subs.contains t
+      | none => false
+    | .mem _ => (T.E.getLast?.map fun e => (e.1, e.2.map norm)) == effs[T.E.length - 1]?
+    | _ => true
+  let mut frontier : Std.TreeMap Nat (List (XSState × List XInstr × Nat)) :=
+    Std.TreeMap.empty.insert 0 [(XSState.init, [], 0)]
+  let mut seen : Std.HashMap (List Term × Nat × Nat) Nat := {}
+  let mut nodes := 0
+  while nodes < maxNodes do
+    let some (g, bucket) := frontier.minEntry? | return none
+    match bucket with
+    | [] => frontier := frontier.erase g
+    | (T, prog, sz) :: rest =>
+      frontier := frontier.insert g rest
+      nodes := nodes + 1
+      if T.E.length == effs.size && reaches X.S T.S then
+        let cand := prog.reverse
+        return if xcost f cand < budget then some cand else none
+      if prog.length ≥ b.length + 2 then continue
+      for x in moves T do
+        let g' := g + (match x with | .base i => i.cost f | .mem _ => 0)
+        let sz' := sz + x.size
+        if g' ≥ budget || sz' > sizeBudget + (budget - g') / 3 then continue
+        let some T1 := xsstep f x T | continue
+        let T' := { T1 with S := normState T1.S }
+        if T'.S.d > X.S.d || !useful x T' then continue
+        let key := (T'.S.ts, T'.S.d, T'.E.length)
+        if (seen.get? key).any (· ≤ g') then continue
+        seen := seen.insert key g'
+        frontier := frontier.insert g' ((T', x :: prog, sz') :: (frontier.getD g' []))
+  return none
 
 /-- Keep `c` only if `xcheck` accepts it and it scores better (gas + 3·bytes). -/
 def xtry (f : Fork) (b c : XBlock) : XBlock :=
   if xcheck f b c && decide (xscore f c < xscore f b) then c else b
 
-theorem xtry_sound {f : Fork} {b c : XBlock} {s0 s1 : State} (hl : s0.stack.length ≤ 1024)
-    (h : xrun f b s0 = some s1) :
-    ∃ s2, xrun f (xtry f b c) s0 = some s2 ∧
-      s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
-      s1.gasAvailable ≤ s2.gasAvailable := by
+/-- `b` reaches, from `s0`, the frame the original reached (`s1`) except pc, with no less gas. -/
+def Good (f : Fork) (s0 s1 : State) (b : XBlock) : Prop :=
+  ∃ s2, xrun f b s0 = some s2 ∧ s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
+    s1.gasAvailable ≤ s2.gasAvailable
+
+theorem good_refl {f : Fork} {b : XBlock} {s0 s1 : State} (h : xrun f b s0 = some s1) :
+    Good f s0 s1 b := ⟨s1, h, rfl, Nat.le_refl _⟩
+
+theorem xtry_good {f : Fork} {s0 s1 : State} {b : XBlock} (hl : s0.stack.length ≤ 1024)
+    (hg : Good f s0 s1 b) (c : XBlock) : Good f s0 s1 (xtry f b c) := by
+  obtain ⟨s2, h2, e2, g2⟩ := hg
   unfold xtry
   split
-  · next hc => simp only [Bool.and_eq_true] at hc; exact xcheck_sound hc.1 hl h
-  · exact ⟨s1, h, rfl, Nat.le_refl _⟩
+  · next hc =>
+    simp only [Bool.and_eq_true] at hc
+    obtain ⟨s3, h3, e3, g3⟩ := xcheck_sound hc.1 hl h2
+    exact ⟨s3, h3, by rw [e3, e2], by omega⟩
+  · exact ⟨s2, h2, e2, g2⟩
+
+def tryOpt (f : Fork) (o : Option XBlock) (b : XBlock) : XBlock :=
+  match o with
+  | some c => xtry f b c
+  | none => b
+
+theorem tryOpt_good {f : Fork} {s0 s1 : State} {b : XBlock} (hl : s0.stack.length ≤ 1024)
+    (hg : Good f s0 s1 b) (o : Option XBlock) : Good f s0 s1 (tryOpt f o b) := by
+  unfold tryOpt; split
+  · exact xtry_good hl hg _
+  · exact hg
 
 def optimizeX (f : Fork) (b : XBlock) : XBlock :=
   let b1 := xtry f b (segOpt f b)
-  match xgreedy f b1 with
-  | some c => xtry f b1 c
-  | none => b1
+  let b2 := tryOpt f (xgreedy f b1) b1
+  if b.any (· matches .mem _) && b2.length ≤ 24 then tryOpt f (xsearch f b2) b2 else b2
 
 theorem optimizeX_sound {f : Fork} {b : XBlock} {s0 s1 : State} (hl : s0.stack.length ≤ 1024)
-    (h : xrun f b s0 = some s1) :
-    ∃ s2, xrun f (optimizeX f b) s0 = some s2 ∧
-      s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
-      s1.gasAvailable ≤ s2.gasAvailable := by
-  obtain ⟨s2, h2, e2, g2⟩ := xtry_sound (c := segOpt f b) hl h
+    (h : xrun f b s0 = some s1) : Good f s0 s1 (optimizeX f b) := by
+  have h1 := xtry_good hl (good_refl h) (segOpt f b)
+  have h2 := tryOpt_good hl h1 (xgreedy f (xtry f b (segOpt f b)))
   unfold optimizeX
   dsimp only
   split
-  · next c _ =>
-    obtain ⟨s3, h3, e3, g3⟩ := xtry_sound (c := c) hl h2
-    refine ⟨s3, h3, ?_, by omega⟩
-    rw [e3, e2]
-  · exact ⟨s2, h2, e2, g2⟩
+  · exact tryOpt_good hl h2 _
+  · exact h2
+
+/-- Why `xcheck` rejects, for reports. -/
+def xcheckReason (f : Fork) (b b' : XBlock) : String :=
+  match xlift f b, xlift f b' with
+  | none, _ => "original not liftable"
+  | _, none => "candidate not liftable"
+  | some X, some X' =>
+    if normE X.E != normE X'.E then
+      if X.E.map (·.1) == X'.E.map (·.1) then "effect arguments differ (e.g. reordered stores)"
+      else "effect sequence differs"
+    else if X'.S.d > X.S.d then "candidate reads deeper"
+    else if X.S.slack + ((X.S.d : Int) - X'.S.d) > X'.S.slack then "candidate needs more stack room"
+    else if X'.sc > X.sc then "candidate costs more"
+    else if xcheck f b b' then "ok"
+    else "stack result differs after normalisation"
 
 end EvmOpt

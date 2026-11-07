@@ -126,6 +126,24 @@ theorem simp1_eval (o : ArithOp) (a : Term) (ρ : Ctx) :
     · simp only [Term.eval, ArithOp.eval]; rw [lnot_lnot]
     · rfl
 
+/-- `t` is the constant `2^k` with `k ≥ 1`: the `k`. -/
+def pow2? (t : Term) : Option Nat :=
+  match t with
+  | .const v => if 2 ≤ v.toNat ∧ 2 ^ Nat.log2 v.toNat = v.toNat then some (Nat.log2 v.toNat) else none
+  | _ => none
+
+theorem pow2_eval {t : Term} {k : Nat} (h : pow2? t = some k) (ρ : Ctx) :
+    t.eval ρ = shiftLeft (ofNat 1) (ofNat k) := by
+  unfold pow2? at h
+  split at h
+  · next v =>
+    split at h
+    · next hc =>
+      simp only [Option.some.injEq] at h; subst h
+      exact eq_shl_one_of_pow hc.2.symm (pow_log_lt hc.2 (toNat_lt v))
+    · contradiction
+  · contradiction
+
 /-- `t = SHL(y, 1)`: the `y`. -/
 def shlOne? (t : Term) : Option Term :=
   match t with
@@ -170,7 +188,10 @@ def rMUL (a b : Term) : Term :=
   else match shlOne? b, shlOne? a with
     | some y, _ => .app2 .SHL y a
     | none, some y => .app2 .SHL y b
-    | none, none => comm .MUL a b
+    | none, none => match pow2? b, pow2? a with
+      | some k, _ => .app2 .SHL (.const (ofNat k)) a
+      | none, some k => .app2 .SHL (.const (ofNat k)) b
+      | none, none => comm .MUL a b
 theorem rMUL_eval (a b : Term) : (rMUL a b).eval ρ = a.eval ρ * b.eval ρ := by
   unfold rMUL
   split
@@ -194,12 +215,24 @@ theorem rMUL_eval (a b : Term) : (rMUL a b).eval ρ = a.eval ρ * b.eval ρ := b
     obtain ⟨one, h1, he⟩ := shlOne_eval ha ρ
     show shiftLeft (b.eval ρ) (y.eval ρ) = a.eval ρ * b.eval ρ
     rw [he, mul_comm', mul_shl_one h1]
+  | none =>
+  cases hpb : pow2? b with
+  | some k =>
+    show shiftLeft (a.eval ρ) (ofNat k) = a.eval ρ * b.eval ρ
+    rw [pow2_eval hpb ρ, mul_shl_one toNat_ofNat_one]
+  | none =>
+  cases hpa : pow2? a with
+  | some k =>
+    show shiftLeft (b.eval ρ) (ofNat k) = a.eval ρ * b.eval ρ
+    rw [pow2_eval hpa ρ, mul_comm', mul_shl_one toNat_ofNat_one]
   | none => exact comm_eval (o := .MUL) (fun x y => mul_comm' x y) a b ρ
 
 def rDIV (a b : Term) : Term :=
   if isC b 1 then a else match shlOne? b with
     | some y => .app2 .SHR y a
-    | none => .app2 .DIV a b
+    | none => match pow2? b with
+      | some k => .app2 .SHR (.const (ofNat k)) a
+      | none => .app2 .DIV a b
 theorem rDIV_eval (a b : Term) : (rDIV a b).eval ρ = a.eval ρ / b.eval ρ := by
   unfold rDIV
   split
@@ -209,6 +242,11 @@ theorem rDIV_eval (a b : Term) : (rDIV a b).eval ρ = a.eval ρ / b.eval ρ := b
     obtain ⟨one, h1, he⟩ := shlOne_eval hb ρ
     show shiftRight (a.eval ρ) (y.eval ρ) = a.eval ρ / b.eval ρ
     rw [he, div_shl_one h1]
+  | none =>
+  cases hpb : pow2? b with
+  | some k =>
+    show shiftRight (a.eval ρ) (ofNat k) = a.eval ρ / b.eval ρ
+    rw [pow2_eval hpb ρ, div_shl_one toNat_ofNat_one]
   | none => rfl
 
 def rMOD (a b : Term) : Term :=

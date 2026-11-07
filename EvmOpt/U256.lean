@@ -332,4 +332,17 @@ theorem div_shl_one {x y one : UInt256} (h : one.toNat = 1) :
     rw [Fin.div_val, Fin.shiftRight_val, hv, ← Nat.shiftRight_eq_div_pow]
     rfl
 
+theorem eq_shl_one_of_pow {c : UInt256} {k : Nat} (h : c.toNat = 2 ^ k) (hk : k < 256) :
+    c = shiftLeft (ofNat 1) (ofNat k) := by
+  have hk' : (ofNat k).toNat = k := toNat_ofNat_small (by rw [size_eq]; exact Nat.lt_trans hk (by decide))
+  apply ext_toNat
+  unfold shiftLeft
+  rw [hk', if_neg (by omega), toNat_ofNat_one]
+  have hp : 2 ^ k < size := by rw [size_eq]; exact Nat.pow_lt_pow_right (by decide) hk
+  rw [toNat_ofNat', Nat.one_shiftLeft, Nat.mod_mod, Nat.mod_eq_of_lt hp, h]
+
+theorem pow_log_lt {n : Nat} (h : 2 ^ Nat.log2 n = n) (hn : n < size) : Nat.log2 n < 256 := by
+  rw [size_eq, ← h] at hn
+  exact (Nat.pow_lt_pow_iff_right (by decide)).1 hn
+
 end EvmSemantics.UInt256

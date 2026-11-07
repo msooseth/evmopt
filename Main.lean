@@ -142,6 +142,14 @@ def main (args : List String) : IO UInt32 := do
                         return 0
   | ["opt", path] => optimizeFile f path; return 0
   | ["check", a, b] => checkPair f a b
+  | ["xcheck", a, b] =>
+    let parse (s : String) : Option XBlock :=
+      (parseBlock s).mapM fun | .ins x => some x | .other _ => none
+    match parse a, parse b with
+    | some x, some y =>
+      IO.println s!"xcheck: {xcheckReason f x y} (stack gas {xcost f x} -> {xcost f y})"
+      return if xcheck f x y then 0 else 1
+    | _, _ => IO.eprintln "unsupported instruction"; return 2
   | _ =>
     IO.eprintln "usage: evmopt [--fork F] (opt <blocks.txt> | check \"<orig>\" \"<cand>\" | gasolcmp [-v] <orig.json> <gasol.json> | stats <asm.json>...)"
     return 2

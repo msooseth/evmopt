@@ -17,6 +17,14 @@ def arithNames : List (String × ArithOp) :=
    ("AND", .AND), ("OR", .OR), ("XOR", .XOR), ("NOT", .NOT), ("BYTE", .BYTE), ("SHL", .SHL),
    ("SHR", .SHR), ("SAR", .SAR), ("CLZ", .CLZ)]
 
+def envNames : List (String × EnvOp) :=
+  [("ADDRESS", .ADDRESS), ("ORIGIN", .ORIGIN), ("CALLER", .CALLER), ("CALLVALUE", .CALLVALUE),
+   ("CALLDATALOAD", .CALLDATALOAD), ("CALLDATASIZE", .CALLDATASIZE), ("GASPRICE", .GASPRICE),
+   ("RETURNDATASIZE", .RETURNDATASIZE), ("BLOCKHASH", .BLOCKHASH), ("COINBASE", .COINBASE),
+   ("TIMESTAMP", .TIMESTAMP), ("NUMBER", .NUMBER), ("PREVRANDAO", .PREVRANDAO),
+   ("DIFFICULTY", .PREVRANDAO), ("GASLIMIT", .GASLIMIT), ("CHAINID", .CHAINID),
+   ("SELFBALANCE", .SELFBALANCE), ("BASEFEE", .BASEFEE)]
+
 def hexDigit (c : Char) : Option Nat :=
   if '0' ≤ c ∧ c ≤ '9' then some (c.toNat - '0'.toNat)
   else if 'a' ≤ c ∧ c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
@@ -41,7 +49,9 @@ def opName? (s : String) : Option Instr :=
   else if s.startsWith "SWAP" then
     (String.ofList (s.toList.drop 4)).toNat?.bind fun n =>
       if h : 1 ≤ n ∧ n ≤ 16 then some (.swap ⟨n - 1, by omega⟩) else none
-  else (arithNames.lookup s).map .op
+  else match arithNames.lookup s with
+    | some o => some (.op o)
+    | none => (envNames.lookup s).map .env
 
 def pseudoPushArgs : List String := ["[tag]", "#[$]", "[$]", "data", "$"]
 
@@ -91,6 +101,7 @@ def Instr.show : Instr → String
   | .swap n => s!"SWAP{n.val + 1}"
   | .pop => "POP"
   | .op o => ((arithNames.find? (·.2 == o)).map (·.1)).getD "?"
+  | .env e => ((envNames.find? (·.2 == e)).map (·.1)).getD "?"
 
 def Item.show : Item → String
   | .ins i => i.show

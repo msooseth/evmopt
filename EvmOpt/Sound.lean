@@ -67,11 +67,26 @@ local macro "arith3" r:ident : tactic => `(tactic| (
   exact Step.running hr.running hr.notPrecompile
     ($r s a b c rest hop hgas hs (by simp [hs, Operation.pushArity, Operation.popArity]; omega))))
 
+set_option hygiene false in
+local macro "env0" r:ident : tactic => `(tactic| (
+  simp only [EnvOp.arity, List.drop, List.length_cons] at hlen ⊢
+  exact Step.running hr.running hr.notPrecompile ($r s hop hgas (by omega))))
+
+set_option hygiene false in
+local macro "env1" r:ident : tactic => `(tactic| (
+  obtain ⟨a, rest, hs⟩ : ∃ a rest, s.stack = a :: rest := by
+    rcases h : s.stack with _ | ⟨a, rest⟩
+    · simp [h, EnvOp.arity] at hle
+    · exact ⟨a, rest, rfl⟩
+  simp only [hs, EnvOp.arity, EnvOp.eval, List.drop, List.length_cons] at hlen ⊢
+  exact Step.running hr.running hr.notPrecompile
+    ($r s a rest hop hgas hs (by simp [hs, Operation.pushArity, Operation.popArity]; omega))))
+
 /-- One instruction is one `Step` of the specification. -/
 theorem step_instr {s : State} {i : Instr} {stk' : List UInt256} (hr : Ready s)
     (hc : CodeAt s.executionEnv.code s.pc.toNat i.bytes)
     (hgas : i.cost s.fork ≤ s.gasAvailable)
-    (hx : i.exec s.fork s.stack = some stk') :
+    (hx : i.exec s.fork s s.stack = some stk') :
     Step s (i.post s stk') := by
   obtain ⟨ha, hop', hlen⟩ := Instr.exec_eq_some.1 hx
   have hw : ∀ bs, i = .push bs → bs.length ≤ 32 := by
@@ -150,6 +165,32 @@ theorem step_instr {s : State} {i : Instr} {stk' : List UInt256} (hr : Ready s)
     · arith2 StepRunning.shr
     · arith2 StepRunning.sar
     · arith1 StepRunning.clz
+  | env e =>
+    simp only [Instr.stackOp] at hop'
+    split at hop' <;> try contradiction
+    rename_i hle
+    simp only [Option.some.injEq] at hop'
+    subst hop'
+    have hop : s.decodedOp = some e.toOp := by
+      simp [State.decodedOp, hdec, Instr.decoded, Instr.toOp]
+    cases e
+    · env0 StepRunning.address
+    · env0 StepRunning.origin
+    · env0 StepRunning.caller
+    · env0 StepRunning.callvalue
+    · env1 StepRunning.calldataload
+    · env0 StepRunning.calldatasize
+    · env0 StepRunning.gasprice
+    · env0 StepRunning.returndatasize
+    · env1 StepRunning.blockhash
+    · env0 StepRunning.coinbase
+    · env0 StepRunning.timestamp
+    · env0 StepRunning.number
+    · env0 StepRunning.prevrandao
+    · env0 StepRunning.gaslimit
+    · env0 StepRunning.chainid
+    · env0 StepRunning.selfbalance
+    · env0 StepRunning.basefee
 
 end EvmOpt
 
@@ -196,7 +237,7 @@ theorem run_sound (b : Block) : ∀ (s : State) (stk' : List UInt256), Ready s �
     CodeAt s.executionEnv.code s.pc.toNat (encode b) →
     s.pc.toNat + (encode b).length < UInt256.size →
     cost s.fork b ≤ s.gasAvailable →
-    run s.fork b s.stack = some stk' →
+    run s.fork s b s.stack = some stk' →
     Steps s (blockPost s b stk') := by
   induction b with
   | nil =>
@@ -218,6 +259,7 @@ theorem run_sound (b : Block) : ∀ (s : State) (stk' : List UInt256), Ready s �
     have hr1 : Ready (i.post s stk1) := ⟨hr.running, hr.notPrecompile⟩
     have hpc1 : (i.post s stk1).pc.toNat = s.pc.toNat + i.size :=
       toNat_pc_add (by unfold Instr.size; omega)
+    rw [run_congr (σ := s) (σ' := i.post s stk1) ⟨rfl, rfl, rfl⟩] at hrest
     have hrest' := ih (i.post s stk1) stk' hr1
       (by rw [hpc1]; exact hcb)
       (by rw [hpc1]; unfold Instr.size; omega)

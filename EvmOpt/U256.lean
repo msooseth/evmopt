@@ -232,4 +232,15 @@ theorem lor_land_absorb_in_left (x y : UInt256) : lor (land x y) x = x := by
 theorem lor_land_absorb_in_right (x y : UInt256) : lor (land x y) y = y := by
   apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
 
+theorem toNat_addr_lt (a : AccountAddress) : (AccountAddress.toUInt256 a).toNat < 2 ^ 160 := by
+  have := a.isLt
+  unfold AccountAddress.toUInt256
+  rw [toNat_ofNat_small (by unfold AccountAddress.size at this; rw [size_eq]; omega)]
+  exact this
+
+theorem land_mask_of_lt {a b : UInt256} (ha : a.toNat < 2 ^ 160) (hb : b.toNat = 2 ^ 160 - 1) :
+    land a b = a := by
+  apply ext_toNat
+  rw [toNat_land_exact, hb, Nat.and_two_pow_sub_one_eq_mod, Nat.mod_eq_of_lt ha]
+
 end EvmSemantics.UInt256

@@ -102,8 +102,8 @@ def counterexample (f : Fork) (b b' : Block) (tries : Nat := 300) :
     Option (List UInt256 × List UInt256 × Option (List UInt256)) :=
   (List.range tries).findSome? fun t =>
     let stk := randStack (UInt64.ofNat (t * 104729 + 17)) 40
-    match run f b stk with
-    | some r => if run f b' stk = some r then none else some (stk, r, run f b' stk)
+    match run f default b stk with
+    | some r => if run f default b' stk = some r then none else some (stk, r, run f default b' stk)
     | none => none
 
 end EvmOpt

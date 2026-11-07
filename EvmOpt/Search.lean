@@ -13,6 +13,7 @@ partial def Term.subterms (t : Term) : List Term :=
     | .app1 _ a => a.subterms
     | .app2 _ a b => a.subterms ++ b.subterms
     | .app3 _ a b c => a.subterms ++ b.subterms ++ c.subterms
+    | .env1 _ a => a.subterms
     | _ => []
 
 def Term.op? : Term → Option ArithOp
@@ -38,6 +39,8 @@ def search (f : Fork) (b : Block) (cfg : SearchCfg := {}) : Option Block := Id.r
     (target.flatMap Term.subterms).foldl (fun m t => m.insert t ()) {}
   let consts := (target.flatMap Term.subterms).filterMap fun | .const v => some v | _ => none
   let ops := ((target.flatMap Term.subterms).filterMap Term.op?).eraseDups
+  let envs := ((target.flatMap Term.subterms).filterMap fun
+    | .env0 e | .env1 e _ => some e | _ => none).eraseDups
   let pushes := (consts.eraseDups.map (pushOf f)).filter (·.static f)
   let budget := cost f b
   let sizeBudget := blockSize b
@@ -48,10 +51,11 @@ def search (f : Fork) (b : Block) (cfg : SearchCfg := {}) : Option Block := Id.r
     ((List.range 16).filterMap fun n =>
       if h : n < 16 then if n + 1 < avail then some (.swap ⟨n, h⟩) else none else none) ++
     (if 0 < avail then [.pop] else []) ++ pushes ++
-    (ops.filterMap fun o => if o.arity ≤ avail then some (.op o) else none)
+    (ops.filterMap fun o => if o.arity ≤ avail then some (.op o) else none) ++
+    (envs.filterMap fun e => if e.arity ≤ avail then some (.env e) else none)
   let useful (i : Instr) (T : SState) : Bool :=
     match i with
-    | .op _ => match T.ts.head? with | some t => subs.contains t | none => false
+    | .op _ | .env _ => match T.ts.head? with | some t => subs.contains t | none => false
     | _ => true
   -- frontier keyed by gas spent; each entry: state, reversed program, bytes
   let mut frontier : Std.TreeMap Nat (List (SState × List Instr × Nat)) :=
@@ -88,10 +92,10 @@ def optimizeBlock (f : Fork) (b : Block) : Block :=
   | some c => if check f p c then c else p
   | none => p
 
-theorem optimizeBlock_sound (f : Fork) (b : Block) {stk r : List UInt256}
-    (hl : stk.length ≤ 1024) (h : run f b stk = some r) :
-    run f (optimizeBlock f b) stk = some r ∧ cost f (optimizeBlock f b) ≤ cost f b := by
-  obtain ⟨h1, h2⟩ := peephole_sound f b hl h
+theorem optimizeBlock_sound (f : Fork) (σ : State) (b : Block) {stk r : List UInt256}
+    (hl : stk.length ≤ 1024) (h : run f σ b stk = some r) :
+    run f σ (optimizeBlock f b) stk = some r ∧ cost f (optimizeBlock f b) ≤ cost f b := by
+  obtain ⟨h1, h2⟩ := peephole_sound f σ b hl h
   unfold optimizeBlock
   dsimp only
   split

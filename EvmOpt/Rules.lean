@@ -126,9 +126,9 @@ def rule (f : Fork) (b : Block) : Option (Nat × Block) :=
 
 def peephole (f : Fork) (b : Block) : Block := passes f rule (2 * b.length + 2) b
 
-theorem peephole_sound (f : Fork) (b : Block) {stk r : List UInt256}
-    (hl : stk.length ≤ 1024) (h : run f b stk = some r) :
-    run f (peephole f b) stk = some r ∧ cost f (peephole f b) ≤ cost f b :=
-  passes_sound f rule _ b hl h
+theorem peephole_sound (f : Fork) (σ : State) (b : Block) {stk r : List UInt256}
+    (hl : stk.length ≤ 1024) (h : run f σ b stk = some r) :
+    run f σ (peephole f b) stk = some r ∧ cost f (peephole f b) ≤ cost f b :=
+  passes_sound f σ rule _ b hl h
 
 end EvmOpt

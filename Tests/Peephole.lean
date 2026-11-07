@@ -75,3 +75,20 @@ def ok (a b : String) (f : Fork := .Cancun) : Bool := check f (blk a) (blk b)
   "PUSH0"
 #guard opt "PUSH1 0x03 PUSH32 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff DIV"
   = "PUSH32 0x" ++ String.join (List.replicate 32 "55")
+
+def sopt (s : String) (f : Fork := .Cancun) : String :=
+  " ".intercalate ((optimizeBlock f (blk s)).map Instr.show)
+
+-- search (validated by check) finds gasol's optimum and removes dead computation
+#guard sopt "SWAP1 SWAP4 DUP5 SWAP2 SWAP1" = "DUP2 SWAP5"
+#guard sopt "DUP3 DUP3 ADD SWAP2 POP SWAP1 POP" = "SWAP1 POP"
+#guard sopt "SWAP2 SWAP1 SWAP2 SWAP1" = "SWAP1 SWAP2"
+#guard sopt "PUSH1 0x01 DUP2 ADD SWAP1 POP" = "PUSH1 0x01 ADD"
+#guard sopt "DUP1 DUP3 XOR DUP3 XOR" = "DUP1"
+
+-- env reads (gasol interesting_examples/caller_redundant_check.txt)
+#guard sopt "CALLER PUSH20 0xffffffffffffffffffffffffffffffffffffffff AND PUSH1 0x00" = "CALLER PUSH0"
+#guard ok "CALLER PUSH20 0xffffffffffffffffffffffffffffffffffffffff AND" "CALLER"
+#guard !ok "CALLVALUE PUSH20 0xffffffffffffffffffffffffffffffffffffffff AND" "CALLVALUE"
+#guard sopt "CALLER CALLER EQ" = "PUSH1 0x01"
+#guard sopt "PUSH0 CALLDATALOAD DUP1 POP" = "PUSH0 CALLDATALOAD"

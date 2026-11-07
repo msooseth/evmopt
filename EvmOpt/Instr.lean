@@ -87,6 +87,67 @@ def eval : ArithOp → List UInt256 → UInt256
 
 end ArithOp
 
+/-- Reads of the frame/block environment with static gas. Inside a block of stack
+    instructions nothing changes what they read, so they are pure functions of the frame.
+    Excluded: CODESIZE (observes the code being rewritten), BALANCE/EXTCODE* (dynamic gas). -/
+inductive EnvOp
+  | ADDRESS | ORIGIN | CALLER | CALLVALUE | CALLDATALOAD | CALLDATASIZE | GASPRICE
+  | RETURNDATASIZE | BLOCKHASH | COINBASE | TIMESTAMP | NUMBER | PREVRANDAO | GASLIMIT
+  | CHAINID | SELFBALANCE | BASEFEE
+  deriving DecidableEq, Repr, Inhabited, Ord, Hashable
+
+namespace EnvOp
+
+def toOp : EnvOp → Operation
+  | ADDRESS => .ADDRESS | ORIGIN => .ORIGIN | CALLER => .CALLER | CALLVALUE => .CALLVALUE
+  | CALLDATALOAD => .CALLDATALOAD | CALLDATASIZE => .CALLDATASIZE | GASPRICE => .GASPRICE
+  | RETURNDATASIZE => .RETURNDATASIZE | BLOCKHASH => .BLOCKHASH | COINBASE => .COINBASE
+  | TIMESTAMP => .TIMESTAMP | NUMBER => .NUMBER | PREVRANDAO => .PREVRANDAO
+  | GASLIMIT => .GASLIMIT | CHAINID => .CHAINID | SELFBALANCE => .SELFBALANCE
+  | BASEFEE => .BASEFEE
+
+def byte : EnvOp → UInt8
+  | ADDRESS => 0x30 | ORIGIN => 0x32 | CALLER => 0x33 | CALLVALUE => 0x34
+  | CALLDATALOAD => 0x35 | CALLDATASIZE => 0x36 | GASPRICE => 0x3a | RETURNDATASIZE => 0x3d
+  | BLOCKHASH => 0x40 | COINBASE => 0x41 | TIMESTAMP => 0x42 | NUMBER => 0x43
+  | PREVRANDAO => 0x44 | GASLIMIT => 0x45 | CHAINID => 0x46 | SELFBALANCE => 0x47
+  | BASEFEE => 0x48
+
+def arity : EnvOp → Nat
+  | CALLDATALOAD | BLOCKHASH => 1
+  | _ => 0
+
+def eval (σ : State) : EnvOp → List UInt256 → UInt256
+  | ADDRESS, _ => σ.executionEnv.address.toUInt256
+  | ORIGIN, _ => σ.executionEnv.origin.toUInt256
+  | CALLER, _ => σ.executionEnv.caller.toUInt256
+  | CALLVALUE, _ => σ.executionEnv.weiValue
+  | CALLDATALOAD, i :: _ => MachineState.readWord σ.executionEnv.calldata i.toNat
+  | CALLDATASIZE, _ => UInt256.ofNat σ.executionEnv.calldata.size
+  | GASPRICE, _ => σ.executionEnv.gasPrice
+  | RETURNDATASIZE, _ => UInt256.ofNat σ.returnData.size
+  | BLOCKHASH, n :: _ => σ.executionEnv.header.blockHash n
+  | COINBASE, _ => σ.executionEnv.header.coinbase.toUInt256
+  | TIMESTAMP, _ => σ.executionEnv.header.timestamp
+  | NUMBER, _ => σ.executionEnv.header.number
+  | PREVRANDAO, _ => σ.executionEnv.header.prevRandao
+  | GASLIMIT, _ => σ.executionEnv.header.gasLimit
+  | CHAINID, _ => σ.executionEnv.header.chainId
+  | SELFBALANCE, _ => (σ.accountMap σ.executionEnv.address).balance
+  | BASEFEE, _ => σ.executionEnv.header.baseFeePerGas
+  | _, _ => 0
+
+end EnvOp
+
+/-- What a block can observe of the frame besides its stack. -/
+def EnvEq (σ σ' : State) : Prop :=
+  σ.executionEnv = σ'.executionEnv ∧ σ.accountMap = σ'.accountMap ∧ σ.returnData = σ'.returnData
+
+theorem EnvOp.eval_congr {σ σ' : State} (h : EnvEq σ σ') (e : EnvOp) (l : List UInt256) :
+    e.eval σ l = e.eval σ' l := by
+  obtain ⟨h1, h2, h3⟩ := h
+  cases e <;> rcases l with _ | ⟨a, l⟩ <;> simp [eval, h1, h2, h3]
+
 /-- A straight-line stack instruction. `push bs` is `PUSH{bs.length}` with immediate `bs`
     (big-endian); `push []` is `PUSH0`. -/
 inductive Instr
@@ -95,6 +156,7 @@ inductive Instr
   | swap (n : Fin 16)
   | pop
   | op (o : ArithOp)
+  | env (e : EnvOp)
   deriving DecidableEq, Repr, Inhabited
 
 abbrev Block := List Instr
@@ -114,6 +176,7 @@ def toOp : Instr → Operation
   | swap n => .Swap ⟨n⟩
   | pop => .POP
   | op o => o.toOp
+  | env e => e.toOp
 
 def bytes : Instr → List UInt8
   | push bs => (0x5f + bs.length).toUInt8 :: bs
@@ -121,28 +184,35 @@ def bytes : Instr → List UInt8
   | swap n => [(0x90 + n.val).toUInt8]
   | pop => [0x50]
   | op o => [o.byte]
+  | env e => [e.byte]
 
 def size (i : Instr) : Nat := i.bytes.length
 
-/-- Stack effect ignoring the 1024-item limit and fork; `none` on underflow or an
-    over-long PUSH. -/
-def stackOp : Instr → List UInt256 → Option (List UInt256)
+/-- Stack effect in frame `σ`, ignoring the 1024-item limit and fork; `none` on underflow
+    or an over-long PUSH. -/
+def stackOp (σ : State) : Instr → List UInt256 → Option (List UInt256)
   | push bs, stk => if bs.length ≤ 32 then some (pushVal bs :: stk) else none
   | dup n, stk => stk[n.val]?.map (· :: stk)
   | swap n, stk => stk.exchange 0 (n.val + 1)
   | pop, stk => stk.tail?
   | op o, stk => if o.arity ≤ stk.length then some (o.eval stk :: stk.drop o.arity) else none
+  | env e, stk =>
+    if e.arity ≤ stk.length then some (e.eval σ stk :: stk.drop e.arity) else none
+
+theorem stackOp_congr {σ σ' : State} (h : EnvEq σ σ') (i : Instr) (stk : List UInt256) :
+    i.stackOp σ stk = i.stackOp σ' stk := by
+  cases i <;> simp [stackOp, EnvOp.eval_congr h]
 
 /-- Stack effect as the EVM executes it: also fails on overflow and on an opcode not yet
     active in `f`. -/
-def exec (f : Fork) (i : Instr) (stk : List UInt256) : Option (List UInt256) :=
+def exec (f : Fork) (σ : State) (i : Instr) (stk : List UInt256) : Option (List UInt256) :=
   if i.toOp.availableInFork f then
-    (i.stackOp stk).bind fun stk' => if stk'.length ≤ 1024 then some stk' else none
+    (i.stackOp σ stk).bind fun stk' => if stk'.length ≤ 1024 then some stk' else none
   else none
 
-theorem exec_eq_some {f : Fork} {i : Instr} {stk stk' : List UInt256} :
-    i.exec f stk = some stk' ↔
-      i.toOp.availableInFork f = true ∧ i.stackOp stk = some stk' ∧ stk'.length ≤ 1024 := by
+theorem exec_eq_some {f : Fork} {σ : State} {i : Instr} {stk stk' : List UInt256} :
+    i.exec f σ stk = some stk' ↔
+      i.toOp.availableInFork f = true ∧ i.stackOp σ stk = some stk' ∧ stk'.length ≤ 1024 := by
   unfold exec
   split <;> simp_all [Option.bind_eq_some_iff]
 
@@ -150,9 +220,17 @@ def cost (f : Fork) (i : Instr) : Nat := Gas.baseCost f i.toOp
 
 end Instr
 
-def run (f : Fork) : Block → List UInt256 → Option (List UInt256)
+def run (f : Fork) (σ : State) : Block → List UInt256 → Option (List UInt256)
   | [], stk => some stk
-  | i :: b, stk => (i.exec f stk).bind (run f b)
+  | i :: b, stk => (i.exec f σ stk).bind (run f σ b)
+
+theorem run_congr {f : Fork} {σ σ' : State} (h : EnvEq σ σ') (b : Block) (stk : List UInt256) :
+    run f σ b stk = run f σ' b stk := by
+  induction b generalizing stk with
+  | nil => rfl
+  | cons i b ih =>
+    have e : run f σ b = run f σ' b := funext ih
+    simp [run, Instr.exec, Instr.stackOp_congr h, e]
 
 def cost (f : Fork) : Block → Nat
   | [] => 0

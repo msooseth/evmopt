@@ -32,6 +32,9 @@ theorem CodeAt.append {code : ByteArray} {pc : Nat} {xs ys : List UInt8} :
 theorem opcodeOf_arith (o : ArithOp) : Decode.opcodeOf o.byte = some o.toOp := by
   cases o <;> rfl
 
+theorem opcodeOf_env (e : EnvOp) : Decode.opcodeOf e.byte = some e.toOp := by
+  cases e <;> rfl
+
 theorem opcodeOf_dup : ∀ n : Fin 16,
     Decode.opcodeOf (0x80 + n.val).toUInt8 = some (.Dup ⟨n⟩) := by decide
 
@@ -99,5 +102,9 @@ theorem decodeAt_of_codeAt {code : ByteArray} {pc : Nat} {i : Instr}
     have hb : code[pc] = o.byte := by simpa [Instr.bytes] using h0
     simp only [hb, opcodeOf_arith, Instr.decoded, Instr.toOp]
     cases o <;> rfl
+  | env e =>
+    have hb : code[pc] = e.byte := by simpa [Instr.bytes] using h0
+    simp only [hb, opcodeOf_env, Instr.decoded, Instr.toOp]
+    cases e <;> rfl
 
 end EvmOpt

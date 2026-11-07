@@ -130,8 +130,14 @@ Stack-local windows proposing candidates for the checker:
   symbolic states; moves restricted to DUP/SWAP within the original depth, POP, target
   constants, ops producing target subterms. Validated by `check`; `optimizeBlock_sound`.
   Finds gasol's `redundant_swap` optimum `DUP2 SWAP5` in 60 ms.
-- [todo] Uninterpreted ops in `Term` (env reads, SLOAD/MLOAD/KECCAK with effect order,
-  `PUSH [tag]` as opaque constants) so blocks span full basic blocks.
+- [done] Env reads as terms: ADDRESS ORIGIN CALLER CALLVALUE CALLDATALOAD CALLDATASIZE
+  GASPRICE RETURNDATASIZE BLOCKHASH COINBASE TIMESTAMP NUMBER PREVRANDAO GASLIMIT CHAINID
+  SELFBALANCE BASEFEE (static gas, read-only frame σ threaded through `run`/`eval`;
+  CODESIZE excluded: it observes the rewritten code). Corpus: stack-op gas -2.1%.
+- [done] `AND(CALLER|ORIGIN|ADDRESS|COINBASE, 2^160-1) → X` (gasol type-2).
+- [todo] `PUSH [tag]` as opaque constants.
+- [todo] SLOAD/MLOAD/KECCAK/MSTORE/SSTORE with effect ordering (dynamic gas: needs cost
+  model per access).
 - [todo] Greedy scheduler for blocks beyond the search budget (port gasol's greedy).
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.
 

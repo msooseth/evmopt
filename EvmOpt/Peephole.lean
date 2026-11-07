@@ -3,21 +3,21 @@ import EvmOpt.Check
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
 
-theorem run_append (f : Fork) (p q : Block) (stk : List UInt256) :
-    run f (p ++ q) stk = (run f p stk).bind (run f q) := by
+theorem run_append (f : Fork) (σ : State) (p q : Block) (stk : List UInt256) :
+    run f σ (p ++ q) stk = (run f σ p stk).bind (run f σ q) := by
   induction p generalizing stk with
   | nil => simp [run]
   | cons i p ih =>
     simp only [List.cons_append, run]
-    cases i.exec f stk <;> simp [ih]
+    cases i.exec f σ stk <;> simp [ih]
 
 theorem cost_append (f : Fork) (p q : Block) : cost f (p ++ q) = cost f p + cost f q := by
   induction p with
   | nil => simp [cost]
   | cons i p ih => simp [cost, ih, Nat.add_assoc]
 
-theorem run_length_le {f : Fork} {b : Block} {stk r : List UInt256}
-    (h : run f b stk = some r) (hl : stk.length ≤ 1024) : r.length ≤ 1024 := by
+theorem run_length_le {f : Fork} {σ : State} {b : Block} {stk r : List UInt256}
+    (h : run f σ b stk = some r) (hl : stk.length ≤ 1024) : r.length ≤ 1024 := by
   induction b generalizing stk with
   | nil => simp [run] at h; subst h; exact hl
   | cons i b ih =>
@@ -41,9 +41,9 @@ def pass (f : Fork) (rule : Rule) (b : Block) : Block :=
 termination_by b.length
 decreasing_by all_goals simp_wf; all_goals omega
 
-theorem pass_sound (f : Fork) (rule : Rule) (b : Block) : ∀ {stk r : List UInt256},
-    stk.length ≤ 1024 → run f b stk = some r →
-    run f (pass f rule b) stk = some r ∧ cost f (pass f rule b) ≤ cost f b := by
+theorem pass_sound (f : Fork) (σ : State) (rule : Rule) (b : Block) : ∀ {stk r : List UInt256},
+    stk.length ≤ 1024 → run f σ b stk = some r →
+    run f σ (pass f rule b) stk = some r ∧ cost f (pass f rule b) ≤ cost f b := by
   induction b using pass.induct (f := f) (rule := rule) with
   | case1 => intro stk r _ h; simpa [pass] using h
   | case2 i rest k w' hrule hk ih =>
@@ -80,13 +80,13 @@ def passes (f : Fork) (rule : Rule) : Nat → Block → Block
   | 0, b => b
   | n + 1, b => passes f rule n (pass f rule b)
 
-theorem passes_sound (f : Fork) (rule : Rule) (n : Nat) (b : Block) {stk r : List UInt256}
-    (hl : stk.length ≤ 1024) (h : run f b stk = some r) :
-    run f (passes f rule n b) stk = some r ∧ cost f (passes f rule n b) ≤ cost f b := by
+theorem passes_sound (f : Fork) (σ : State) (rule : Rule) (n : Nat) (b : Block)
+    {stk r : List UInt256} (hl : stk.length ≤ 1024) (h : run f σ b stk = some r) :
+    run f σ (passes f rule n b) stk = some r ∧ cost f (passes f rule n b) ≤ cost f b := by
   induction n generalizing b with
   | zero => exact ⟨h, Nat.le_refl _⟩
   | succ n ih =>
-    obtain ⟨h1, h2⟩ := pass_sound f rule b hl h
+    obtain ⟨h1, h2⟩ := pass_sound f σ rule b hl h
     obtain ⟨h3, h4⟩ := ih _ h1
     exact ⟨h3, by simp only [passes]; omega⟩
 

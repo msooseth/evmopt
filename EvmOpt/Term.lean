@@ -10,16 +10,20 @@ inductive Term
   | app1 (o : ArithOp) (a : Term)
   | app2 (o : ArithOp) (a b : Term)
   | app3 (o : ArithOp) (a b c : Term)
+  | env0 (e : EnvOp)
+  | env1 (e : EnvOp) (a : Term)
   deriving DecidableEq, Repr, Inhabited, Ord, Hashable
 
 namespace Term
 
-def eval (stk : List UInt256) : Term → UInt256
+def eval (σ : State) (stk : List UInt256) : Term → UInt256
   | var i => stk.getD i 0
   | const v => v
-  | app1 o a => o.eval [a.eval stk]
-  | app2 o a b => o.eval [a.eval stk, b.eval stk]
-  | app3 o a b c => o.eval [a.eval stk, b.eval stk, c.eval stk]
+  | app1 o a => o.eval [a.eval σ stk]
+  | app2 o a b => o.eval [a.eval σ stk, b.eval σ stk]
+  | app3 o a b c => o.eval [a.eval σ stk, b.eval σ stk, c.eval σ stk]
+  | env0 e => e.eval σ []
+  | env1 e a => e.eval σ [a.eval σ stk]
 
 end Term
 
@@ -38,8 +42,28 @@ theorem ArithOp.eval_take (o : ArithOp) (l : List UInt256) :
     o.eval l = o.eval (l.take o.arity) := by
   cases o <;> rcases l with _ | ⟨a, _ | ⟨b, _ | ⟨c, l⟩⟩⟩ <;> rfl
 
-theorem mkApp_eval (o : ArithOp) (ts : List Term) (stk : List UInt256)
-    (h : o.arity ≤ ts.length) : (mkApp o ts).eval stk = o.eval (ts.map (·.eval stk)) := by
+def mkEnv (e : EnvOp) : List Term → Term
+  | ts => match e.arity, ts with
+    | 0, _ => .env0 e
+    | 1, a :: _ => .env1 e a
+    | _, _ => .const 0
+
+theorem EnvOp.eval_take (σ : State) (e : EnvOp) (l : List UInt256) :
+    e.eval σ l = e.eval σ (l.take e.arity) := by
+  cases e <;> rcases l with _ | ⟨a, l⟩ <;> rfl
+
+theorem mkEnv_eval (e : EnvOp) (ts : List Term) (σ : State) (stk : List UInt256)
+    (h : e.arity ≤ ts.length) : (mkEnv e ts).eval σ stk = e.eval σ (ts.map (·.eval σ stk)) := by
+  rw [EnvOp.eval_take σ e (ts.map _)]
+  have : e.arity = 0 ∨ e.arity = 1 := by cases e <;> simp [EnvOp.arity]
+  rcases this with h1 | h1
+  · simp [mkEnv, h1, Term.eval]
+  · rcases ts with _ | ⟨a, ts⟩
+    · simp [h1] at h
+    · simp [mkEnv, h1, Term.eval]
+
+theorem mkApp_eval (o : ArithOp) (ts : List Term) (σ : State) (stk : List UInt256)
+    (h : o.arity ≤ ts.length) : (mkApp o ts).eval σ stk = o.eval (ts.map (·.eval σ stk)) := by
   rw [ArithOp.eval_take o (ts.map _)]
   rcases ArithOp.arity_cases o with h1 | h1 | h1 <;>
   · rcases ts with _ | ⟨a, _ | ⟨b, _ | ⟨c, ts⟩⟩⟩ <;> simp_all [mkApp, Term.eval] <;>
@@ -56,8 +80,8 @@ structure SState where
 
 def SState.init : SState := ⟨[], 0, 1024⟩
 
-def conc (stk : List UInt256) (S : SState) : List UInt256 :=
-  S.ts.map (·.eval stk) ++ stk.drop S.d
+def conc (σ : State) (stk : List UInt256) (S : SState) : List UInt256 :=
+  S.ts.map (·.eval σ stk) ++ stk.drop S.d
 
 def vars (a n : Nat) : List Term := (List.range n).map fun j => .var (a + j)
 
@@ -72,6 +96,7 @@ def Instr.need : Instr → Nat
   | .swap n => n.val + 2
   | .pop => 1
   | .op o => o.arity
+  | .env e => e.arity
 
 /-- Static validity: well-formed immediate and opcode active in the fork. -/
 def Instr.static (f : Fork) (i : Instr) : Bool :=
@@ -86,6 +111,7 @@ def Instr.sym : Instr → List Term → List Term
   | .swap n, ts => (ts.exchange 0 (n.val + 1)).getD ts
   | .pop, ts => ts.tail
   | .op o, ts => mkApp o ts :: ts.drop o.arity
+  | .env e, ts => mkEnv e ts :: ts.drop e.arity
 
 def sstep (i : Instr) (S : SState) : SState :=
   let S1 := ensure i.need S

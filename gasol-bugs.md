@@ -32,6 +32,17 @@ H. **Stack limit not modelled: output needs a higher stack peak.** Corpus run
    semantic change. No other wrong code found among stack-only blocks; 8562 blocks with
    memory/storage/env ops are not checkable yet.
 
+   Re-run at 55b306d (28 contracts, `benchmark-55b306d.md`): 137 of 1397 changed
+   stack-only blocks.
+
+I. **Memory/storage rewrites (16-19) not reproduced on the corpus.** Of 1717 effect blocks,
+   206 gasol rewrites change the effect sequence; `gasolcmp` ran both versions on 200 random
+   frames each (random stack and memory, zero storage) and found no difference. Still
+   suspected: random frames rarely hit overlapping offsets, and storage was all zero.
+
+J. **Resource blow-up:** `0x5552F868…` grows gasol's temp dir past 8.5 GB within 22 min
+   (11 GB in an earlier run before the 50 min limit), filling a 16 GB /tmp.
+
 ## Crashes (no output; block left unoptimised)
 
 E. `DUP1 NOT NOT` → `Exception: ('Error in RBR generation', 4)` (cf. 7).

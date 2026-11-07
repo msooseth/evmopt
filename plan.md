@@ -143,8 +143,12 @@ Stack-local windows proposing candidates for the checker:
 - [todo] SLOAD/MLOAD/KECCAK/MSTORE/SSTORE with effect ordering (dynamic gas: needs cost
   model per access).
 - [done] `dupZero`: DUP of a known-zero item → PUSH0 (checked candidate).
-- [todo] Greedy scheduler with CSE for blocks beyond the search budget (port gasol's
-  greedy); closes the remaining gasol wins.
+- [done] Greedy scheduler (`greedy`): demand-counted emission with CSE (DUP1 keeps a copy
+  while uses remain), last-use consumption in place / by SWAP, solc-style constant recipes
+  (`PUSH0 NOT`, `1 DUP1 k SHL SUB`, `m s SHL`), then a DUP/POP/SWAP shuffle to the goal.
+  Candidates ranked by gas + 3·bytes; `tryCand` requires check ∧ size policy ∧ better score.
+  vs gasol (28 contracts, stack-only blocks): ours better on 57, gasol on 14.
+- [todo] Remaining gasol wins: deep-stack reorderings (e.g. `SWAP8 POP … SWAP3 POP POP`).
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.
 
 ### 8. SSA-CFG (whole function) [todo]

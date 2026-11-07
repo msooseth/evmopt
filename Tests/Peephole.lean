@@ -97,3 +97,8 @@ def sopt (s : String) (f : Fork := .Cancun) : String :=
 #guard sopt "PUSH0 DUP1 PUSH1 0x40 DUP4 DUP6 SUB SLT ISZERO" = "PUSH0 PUSH0 PUSH1 0x40 DUP4 DUP6 SUB SLT ISZERO"
 #guard sopt "PUSH0 DUP1 PUSH0 DUP1 PUSH1 0x80 DUP6 DUP8 SUB SLT ISZERO" = "PUSH0 PUSH0 PUSH0 PUSH0 PUSH1 0x80 DUP6 DUP8 SUB SLT ISZERO"
 #guard sopt "PUSH1 0x00 DUP1" (f := .Berlin) = "PUSH1 0x00 DUP1"
+-- greedy scheduler with CSE and solc-style constant recipes (gasol corpus block)
+#guard sopt "DUP2 PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB AND DUP4 PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB AND EQ"
+  = "PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB DUP1 DUP5 AND SWAP1 DUP4 AND EQ"
+-- equal gas but much bigger: rejected
+#guard sopt "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB" = "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB"

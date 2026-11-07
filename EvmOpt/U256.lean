@@ -174,4 +174,62 @@ theorem eq_zero_left {a b : UInt256} (h : a.toNat = 0) : eq a b = isZero b := by
 theorem lt_one_right {a b : UInt256} (h : b.toNat = 1) : lt a b = isZero a := by
   unfold lt isZero; rw [h]; by_cases ha : a.toNat = 0 <;> simp [ha] <;> omega
 
+theorem toNat_lor_exact (a b : UInt256) : (lor a b).toNat = a.toNat ||| b.toNat := by
+  rw [toNat_lor]; apply Nat.mod_eq_of_lt
+  have ha := toNat_lt a; have hb := toNat_lt b; rw [size_eq] at ha hb ⊢
+  exact Nat.or_lt_two_pow ha hb
+
+theorem toNat_land_exact (a b : UInt256) : (land a b).toNat = a.toNat &&& b.toNat := by
+  rw [toNat_land]; apply Nat.mod_eq_of_lt
+  have hb := toNat_lt b; rw [size_eq] at hb ⊢
+  exact Nat.and_lt_two_pow _ hb
+
+theorem toNat_xor_exact (a b : UInt256) : (xor a b).toNat = a.toNat ^^^ b.toNat := by
+  rw [toNat_xor]; apply Nat.mod_eq_of_lt
+  have ha := toNat_lt a; have hb := toNat_lt b; rw [size_eq] at ha hb ⊢
+  exact Nat.xor_lt_two_pow ha hb
+
+local macro "bits" x:term:max y:term:max : tactic => `(tactic| (
+  apply Nat.eq_of_testBit_eq; intro i
+  simp only [Nat.testBit_or, Nat.testBit_and, Nat.testBit_xor]
+  cases ($x).testBit i <;> cases ($y).testBit i <;> rfl))
+
+theorem lor_absorb_left (x y : UInt256) : lor (lor x y) x = lor x y := by
+  apply ext_toNat; simp only [toNat_lor_exact]; bits x.toNat y.toNat
+theorem lor_absorb_right (x y : UInt256) : lor (lor x y) y = lor x y := by
+  apply ext_toNat; simp only [toNat_lor_exact]; bits x.toNat y.toNat
+theorem land_absorb_left (x y : UInt256) : land (land x y) x = land x y := by
+  apply ext_toNat; simp only [toNat_land_exact]; bits x.toNat y.toNat
+theorem land_absorb_right (x y : UInt256) : land (land x y) y = land x y := by
+  apply ext_toNat; simp only [toNat_land_exact]; bits x.toNat y.toNat
+theorem xor_cancel_left (x y : UInt256) : xor (xor x y) x = y := by
+  apply ext_toNat; simp only [toNat_xor_exact]; bits x.toNat y.toNat
+theorem xor_cancel_right (x y : UInt256) : xor (xor x y) y = x := by
+  apply ext_toNat; simp only [toNat_xor_exact]; bits x.toNat y.toNat
+theorem lor_land_absorb_left (x y : UInt256) : lor x (land x y) = x := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem lor_land_absorb_right (x y : UInt256) : lor y (land x y) = y := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem land_lor_absorb_left (x y : UInt256) : land x (lor x y) = x := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem land_lor_absorb_right (x y : UInt256) : land y (lor x y) = y := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+
+theorem land_absorb_in_left (x y : UInt256) : land x (land x y) = land x y := by
+  apply ext_toNat; simp only [toNat_land_exact]; bits x.toNat y.toNat
+theorem land_absorb_in_right (x y : UInt256) : land y (land x y) = land x y := by
+  apply ext_toNat; simp only [toNat_land_exact]; bits x.toNat y.toNat
+theorem land_lor_absorb_in_left (x y : UInt256) : land (lor x y) x = x := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem land_lor_absorb_in_right (x y : UInt256) : land (lor x y) y = y := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem lor_absorb_in_left (x y : UInt256) : lor x (lor x y) = lor x y := by
+  apply ext_toNat; simp only [toNat_lor_exact]; bits x.toNat y.toNat
+theorem lor_absorb_in_right (x y : UInt256) : lor y (lor x y) = lor x y := by
+  apply ext_toNat; simp only [toNat_lor_exact]; bits x.toNat y.toNat
+theorem lor_land_absorb_in_left (x y : UInt256) : lor (land x y) x = x := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+theorem lor_land_absorb_in_right (x y : UInt256) : lor (land x y) y = y := by
+  apply ext_toNat; simp only [toNat_lor_exact, toNat_land_exact]; bits x.toNat y.toNat
+
 end EvmSemantics.UInt256

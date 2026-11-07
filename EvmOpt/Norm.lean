@@ -22,6 +22,28 @@ theorem comm_eval {o : ArithOp} (hc : ∀ x y, o.eval [x, y] = o.eval [y, x]) (a
     (stk : List UInt256) : (comm o a b).eval stk = o.eval [a.eval stk, b.eval stk] := by
   unfold comm; split <;> simp [Term.eval, hc]
 
+/-- `t = o(x, y)` with `z ∈ {x, y}`. -/
+def hasArg (o : ArithOp) (t z : Term) : Bool :=
+  match t with
+  | .app2 o' x y => o' == o && (z == x || z == y)
+  | _ => false
+
+/-- `t = XOR(x, y)` and `z` is one of them: the other one. -/
+def xorOther (t z : Term) : Option Term :=
+  match t with
+  | .app2 .XOR x y => if z = x then some y else if z = y then some x else none
+  | _ => none
+
+theorem hasArg_spec {o : ArithOp} {t z : Term} (h : hasArg o t z = true) :
+    ∃ x y, t = .app2 o x y ∧ (z = x ∨ z = y) := by
+  unfold hasArg at h
+  split at h
+  · next o' x y =>
+    simp only [Bool.and_eq_true, beq_iff_eq, Bool.or_eq_true] at h
+    obtain ⟨rfl, h⟩ := h
+    exact ⟨x, y, rfl, h⟩
+  · contradiction
+
 def c0 : Term := .const ⟨0⟩
 def c1 : Term := .const (ofNat 1)
 
@@ -104,10 +126,28 @@ theorem rMOD_eval (a b : Term) : (rMOD a b).eval stk = a.eval stk % b.eval stk :
 def isMax (t : Term) : Bool := isC t (UInt256.size - 1)
 
 def rAND (a b : Term) : Term :=
-  if isC a 0 || isC b 0 then c0 else if a = b then a else if isMax a then b
+  if hasArg .AND a b || hasArg .OR b a then a else if hasArg .AND b a || hasArg .OR a b then b
+  else if isC a 0 || isC b 0 then c0 else if a = b then a else if isMax a then b
   else if isMax b then a else comm .AND a b
 theorem rAND_eval (a b : Term) : (rAND a b).eval stk = land (a.eval stk) (b.eval stk) := by
   unfold rAND
+  split
+  · next h =>
+    simp only [Bool.or_eq_true] at h
+    rcases h with h | h <;> obtain ⟨x, y, rfl, hz | hz⟩ := hasArg_spec h <;> subst hz <;>
+      simp only [Term.eval, ArithOp.eval]
+    · rw [land_absorb_left]
+    · rw [land_absorb_right]
+    · rw [land_lor_absorb_left]
+    · rw [land_lor_absorb_right]
+  split
+  · next h =>
+    simp only [Bool.or_eq_true] at h
+    rcases h with h | h <;> obtain ⟨x, y, rfl, hz | hz⟩ := hasArg_spec h <;> subst hz <;>
+      simp only [Term.eval, ArithOp.eval]
+    all_goals first
+      | exact (land_absorb_in_left _ _).symm | exact (land_absorb_in_right _ _).symm
+      | exact (land_lor_absorb_in_left _ _).symm | exact (land_lor_absorb_in_right _ _).symm
   split
   · next h =>
     simp only [Bool.or_eq_true] at h
@@ -123,9 +163,27 @@ theorem rAND_eval (a b : Term) : (rAND a b).eval stk = land (a.eval stk) (b.eval
   exact comm_eval (o := .AND) (fun x y => land_comm' x y) a b stk
 
 def rOR (a b : Term) : Term :=
-  if a = b then a else if isC a 0 then b else if isC b 0 then a else comm .OR a b
+  if hasArg .OR a b || hasArg .AND b a then a else if hasArg .OR b a || hasArg .AND a b then b
+  else if a = b then a else if isC a 0 then b else if isC b 0 then a else comm .OR a b
 theorem rOR_eval (a b : Term) : (rOR a b).eval stk = lor (a.eval stk) (b.eval stk) := by
   unfold rOR
+  split
+  · next h =>
+    simp only [Bool.or_eq_true] at h
+    rcases h with h | h <;> obtain ⟨x, y, rfl, hz | hz⟩ := hasArg_spec h <;> subst hz <;>
+      simp only [Term.eval, ArithOp.eval]
+    · rw [lor_absorb_left]
+    · rw [lor_absorb_right]
+    · rw [lor_land_absorb_left]
+    · rw [lor_land_absorb_right]
+  split
+  · next h =>
+    simp only [Bool.or_eq_true] at h
+    rcases h with h | h <;> obtain ⟨x, y, rfl, hz | hz⟩ := hasArg_spec h <;> subst hz <;>
+      simp only [Term.eval, ArithOp.eval]
+    all_goals first
+      | exact (lor_absorb_in_left _ _).symm | exact (lor_absorb_in_right _ _).symm
+      | exact (lor_land_absorb_in_left _ _).symm | exact (lor_land_absorb_in_right _ _).symm
   split
   · next h => subst h; rw [lor_self']
   split
@@ -135,9 +193,32 @@ theorem rOR_eval (a b : Term) : (rOR a b).eval stk = lor (a.eval stk) (b.eval st
   exact comm_eval (o := .OR) (fun x y => lor_comm' x y) a b stk
 
 def rXOR (a b : Term) : Term :=
-  if a = b then c0 else if isC a 0 then b else if isC b 0 then a else comm .XOR a b
+  match xorOther a b, xorOther b a with
+  | some r, _ => r
+  | none, some r => r
+  | none, none =>
+    if a = b then c0 else if isC a 0 then b else if isC b 0 then a else comm .XOR a b
+
+theorem xorOther_eval {t z r : Term} (h : xorOther t z = some r) (stk : List UInt256) :
+    xor (t.eval stk) (z.eval stk) = r.eval stk := by
+  unfold xorOther at h
+  split at h
+  · next x y =>
+    split at h
+    · next hz => simp only [Option.some.injEq] at h; subst h hz; exact xor_cancel_left _ _
+    split at h
+    · next hz => simp only [Option.some.injEq] at h; subst h hz; exact xor_cancel_right _ _
+    contradiction
+  · contradiction
+
 theorem rXOR_eval (a b : Term) : (rXOR a b).eval stk = xor (a.eval stk) (b.eval stk) := by
-  unfold rXOR
+  cases h1 : xorOther a b with
+  | some r => simp only [rXOR, h1]; exact (xorOther_eval h1 stk).symm
+  | none =>
+  cases h2 : xorOther b a with
+  | some r => simp only [rXOR, h1, h2]; rw [xor_comm']; exact (xorOther_eval h2 stk).symm
+  | none =>
+  simp only [rXOR, h1, h2]
   split
   · next h => subst h; rw [xor_self']; rfl
   split

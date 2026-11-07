@@ -62,3 +62,14 @@ def ok (a b : String) (f : Fork := .Cancun) : Bool := check f (blk a) (blk b)
 -- candidates must not read deeper or cost more
 #guard !ok "POP" "SWAP1 POP POP PUSH0 ADD"
 #guard !ok "DUP1" "DUP2"
+-- gasol outputs validated via absorption / cancellation rules
+#guard ok "DUP2 DUP2 OR DUP3 OR" "DUP1 DUP3 OR"
+#guard ok "DUP1 DUP3 XOR DUP3 XOR" "DUP1"
+#guard ok "DUP2 DUP2 AND DUP3 OR" "DUP2 POP DUP2"
+-- gasol-bugs.md A-D: gasol's wrong constant folds are rejected
+#guard !ok "PUSH1 0x03 PUSH32 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff DIV"
+  "PUSH32 0x5555555555555400000000000000000000000000000000000000000000000000"
+#guard !ok "PUSH1 0x03 PUSH32 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff SMOD"
+  "PUSH0"
+#guard opt "PUSH1 0x03 PUSH32 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff DIV"
+  = "PUSH32 0x" ++ String.join (List.replicate 32 "55")

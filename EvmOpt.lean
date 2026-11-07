@@ -9,3 +9,4 @@ import EvmOpt.Check
 import EvmOpt.Peephole
 import EvmOpt.Rules
 import EvmOpt.Asm
+import EvmOpt.SolcAsm

@@ -83,9 +83,10 @@ gasol's SFS rules (`sfs_generator/gasol_optimization.py`), `X` = any term:
 - [done] `GT(X,Y) ↔ LT(Y,X)`, `SGT(X,Y) ↔ SLT(Y,X)` canonical form
 - [done] `DIV(X,1) → X`, `LT(X,X)`/`GT(X,X)`/`SLT(X,X)`/`SGT(X,X)` → 0
 - [done] `GT(1,X) → ISZ(X)`, `LT(X,1) → ISZ(X)`, `EQ(0,X) → ISZ(X)`
+- [done] `AND(X,AND(X,Y))`, `OR(OR(X,Y),Y)`, `OR(X,AND(X,Y)) → X`, `AND(X,OR(X,Y)) → X`,
+  `XOR(X,XOR(X,Y)) → Y` (all argument orders)
 - [todo] remaining gasol type-2 rules: `ISZ(GT(X,0)) → ISZ(X)`, `EQ(1,ISZ(X)) → ISZ(X)`, `ISZ(LT(0,X)) → ISZ(X)`, `ISZ(XOR(X,Y)) → EQ`,
-  `ISZ(SUB(X,Y)) → EQ`, `AND(X,AND(X,Y))`, `OR(X,AND(X,Y)) → X`, `AND(X,OR(X,Y)) → X`,
-  `OR(OR(X,Y),Y)`, `XOR(X,XOR(X,Y)) → Y`, `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`,
+  `ISZ(SUB(X,Y)) → EQ`, `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`,
   `MUL(X,SHL(Y,1)) → SHL(Y,X)`, `DIV(X,SHL(Y,1)) → SHR(Y,X)`, `AND(SHL(X,Y),SHL(X,Z))`
 - [done] `SHL(0,X) → X`, `SHR(0,X) → X`, `SHL(X,0) → 0`, `SHR(X,0) → 0` (correct versions of
   gasol's buggy rules, see `gasol-bugs.md` 1-2)
@@ -113,8 +114,13 @@ Stack-local windows proposing candidates for the checker:
   gasol's `redundant_swap` optimum `DUP2 SWAP5` validates.
 - [todo] solc `--combined-json asm` input (`gasol-optimizer/examples/jsons-solc`): split
   into blocks, optimise, emit.
-- [todo] Benchmark against gasol's results; record disagreements; log gasol bugs in
-  `gasol-bugs.md`.
+- [done] gasol differential: `scripts/gasol_diff.sh` runs gasol per block and validates
+  its output with `evmopt check` + concrete counterexample search; targeted blocks in
+  `Tests/gasol_bug_blocks.txt`; 4 wrong-code bugs and 3 crashes confirmed (`gasol-bugs.md`).
+- [done] `evmopt stats` over solc asm json; `evmopt gasolcmp` block-pairs two asm jsons.
+- [todo] size guard: constant folding currently grows code (solc's `PUSH 0 NOT`-style
+  size tricks get expanded); add a size/gas policy.
+- [todo] Run gasol on `examples/jsons-solc` and compare at scale with `gasolcmp`.
 
 ### 7. SSA lift / rewrite / lower (block level) [todo]
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.

@@ -4,13 +4,38 @@ gasol at `gasol-optimizer/` HEAD ff5efe78. Paths are relative to `gasol-optimize
 `GO` = `sfs_generator/gasol_optimization.py`. In gasol terms the first argument is the top
 of stack (`inpt_sk[0]`), e.g. `SUB(X,0)` = X − 0 and `SHL(a,b)` shifts b by a.
 
-Status: **confirmed** = counterexample checked by the Lean kernel against evm-semantics
-(`Tests/GasolBugs.lean`) or reproduced by running gasol; **suspected** = found by reading the
-code, not yet reproduced (gasol not runnable here yet: `pandas`/`networkx` missing).
+Status: **confirmed end-to-end** = gasol run on a block (`scripts/gasol_diff.sh
+Tests/gasol_bug_blocks.txt -solver z3`, gasol in a venv with networkx+pandas, z3 4.x) emits
+code that `evmopt check` rejects and the concrete counterexample search shows wrong;
+**confirmed (rule level)** = the rule as written is refuted by a kernel-checked
+counterexample (`Tests/GasolBugs.lean`) but was not triggered end-to-end yet;
+**suspected** = found by reading the code only.
+
+## Wrong code emitted (confirmed end-to-end)
+
+A. **Float division in constant folding.** `PUSH1 0x3 PUSH32 0xff…ff DIV` →
+   `PUSH32 0x5555555555555400…00`; correct is `0x5555…55` (`(2^256-1)/3`). See 12.
+B. **MUL result not reduced mod 2^256.** `PUSH1 0x2 PUSH32 0x80…00 MUL` →
+   `PUSH33 0x1000…00` (PUSH33 does not exist); correct is `PUSH0`. See 11.
+C. **ADD result not reduced mod 2^256.** `PUSH1 0x1 PUSH32 0xff…ff ADD` → `PUSH33 0x1000…00`;
+   correct is `PUSH0`. See 11.
+D. **SMOD folded as unsigned MOD.** `PUSH1 0x3 PUSH32 0xff…ff SMOD` → `PUSH0`; correct is
+   `SMOD(-1,3) = -1` = `0xff…ff`. See 4.
+
+## Crashes (no output; block left unoptimised)
+
+E. `DUP1 NOT NOT` → `Exception: ('Error in RBR generation', 4)` (cf. 7).
+F. `PUSH1 0x7 PUSH1 0x5 PUSH1 0x3 ADDMOD` → same exception (cf. 15).
+G. `PUSH1 0x1 PUSH32 0x80…00 SAR` → no optimized sequence printed.
+
+## Notes from the same run
+- gasol emits `PUSH0` by default (no `-push0` flag given), i.e. it assumes Shanghai+.
+- Rules 1-3 did not fire in `-bl` mode on `PUSH1 0x0 SHL`, `PUSH1 0x0 SWAP1 SHL`,
+  `DUP1 DIV` (gasol left them unchanged).
 
 ## Rewrite rules
 
-1. **SHL(0,X)/SHR(0,X) returns 0 instead of X** — confirmed (rule level).
+1. **SHL(0,X)/SHR(0,X) returns 0 instead of X** — confirmed (rule level; not triggered in `-bl`).
    GO:4135-4141 returns `inp_vars[0]` (the zero shift) instead of `inp_vars[1]`.
    Counterexample: `SHL(0,1)` = 1, gasol gives 0. Introduced by commit 25f09177 ("fixing
    rule"), which also enabled SHL/SHR in `apply_transform_rules`.
@@ -18,7 +43,7 @@ code, not yet reproduced (gasol not runnable here yet: `pandas`/`networkx` missi
    GO:4142-4148 returns `inp_vars[0]`. Counterexample: `SHL(5,0)` = 0, gasol gives 5.
 3. **DIV(X,X) → 1 and SDIV(X,X) → 1** — confirmed (rule level). GO:3997-4003. Wrong for
    X = 0: `DIV(0,0)` = 0.
-4. **SMOD modelled as MOD** — confirmed (semantics level). `sfs_generator/ir_block.py:240-244`
+4. **SMOD modelled as MOD** — confirmed end-to-end (D). `sfs_generator/ir_block.py:240-244`
    emits `v1 % v2` for SMOD, same as MOD; `funct_to_opcode("%")` (GO:2743) maps back to MOD.
    Counterexample: `SMOD(-1,3)` = −1 (2^256−1), `MOD(2^256−1,3)` = 0.
 5. **ISZ(ISZ(op)) / ISZ(ISZ(ISZ(X))) can leave dangling variables** — suspected.
@@ -35,9 +60,9 @@ code, not yet reproduced (gasol not runnable here yet: `pandas`/`networkx` missi
 
 ## Constant folding (`evaluate_expression`, GO:1476-1514)
 
-11. **No mod 2^256 for `+ - * ^`** — suspected. 0−1 folds to −1; output does
+11. **No mod 2^256 for `+ - * ^`** — confirmed end-to-end for `+`, `*` (B, C). 0−1 folds to −1; output does
     `hex(int(result))[2:]` (GO:2994) and `hex(-1)[2:]` is `'x1'`.
-12. **Float division for `/`, `shr`, `sar`** — suspected. `math.floor(val0/val1)` loses
+12. **Float division for `/`, `shr`, `sar`** — confirmed end-to-end for `/` (A). `math.floor(val0/val1)` loses
     precision for large values (`math.floor((2**256-1)/3) != (2**256-1)//3`).
 13. **SAR folded unsigned** — suspected. Wrong whenever the value's high bit is set.
 14. **Division/modulo by zero raises instead of giving 0** — suspected (missed

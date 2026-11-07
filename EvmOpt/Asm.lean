@@ -45,12 +45,23 @@ def opName? (s : String) : Option Instr :=
 
 def pseudoPushArgs : List String := ["[tag]", "#[$]", "[$]", "data", "$"]
 
+mutual
+/-- solc-asm style `PUSH v` (hex without `0x`, minimal width). -/
+partial def pushAsm (v : String) (rest : List String) : List Item :=
+  match parseNum (if v.startsWith "0x" then v else "0x" ++ v) with
+  | some n =>
+    let bs := natBytes n
+    if bs.length ≤ 32 then .ins (.push (if bs.isEmpty then [0] else bs)) :: parseTokens rest
+    else .other s!"PUSH {v}" :: parseTokens rest
+  | none => .other s!"PUSH {v}" :: parseTokens rest
+
 partial def parseTokens : List String → List Item
   | [] => []
   | "PUSH0" :: rest => .ins (.push []) :: parseTokens rest
   | "PUSH" :: kind :: v :: rest =>
     if pseudoPushArgs.contains kind then .other s!"PUSH {kind} {v}" :: parseTokens rest
-    else .other "PUSH" :: parseTokens (kind :: v :: rest)
+    else pushAsm kind (v :: rest)
+  | ["PUSH", v] => pushAsm v []
   | t :: rest =>
     if t.startsWith "PUSH" then
       match (String.ofList (t.toList.drop 4)).toNat?, rest with
@@ -63,6 +74,7 @@ partial def parseTokens : List String → List Item
     else match opName? t with
       | some i => .ins i :: parseTokens rest
       | none => .other t :: parseTokens rest
+end
 
 def parseBlock (s : String) : List Item :=
   parseTokens (s.splitOn " " |>.flatMap (·.splitOn "\n") |>.flatMap (·.splitOn "\t")

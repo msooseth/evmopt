@@ -80,7 +80,7 @@ def Term.effBound : Term → Nat
   | _ => 0
 
 theorem Term.eval_effs_append (σ : State) (stk R X : List UInt256) :
-    ∀ t : Term, t.effBound ≤ R.length → t.eval ⟨σ, stk, R ++ X⟩ = t.eval ⟨σ, stk, R⟩
+    ∀ t : Term, t.effBound ≤ R.length → t.eval ⟨σ, stk, R ++ X, fun _ => 0⟩ = t.eval ⟨σ, stk, R, fun _ => 0⟩
   | .var _, _ => rfl
   | .const _, _ => rfl
   | .env0 _, _ => rfl
@@ -96,6 +96,7 @@ theorem Term.eval_effs_append (σ : State) (stk R X : List UInt256) :
   | .eff i, h => by
     simp only [Term.eval, Term.effBound] at h ⊢
     simp [List.getD_eq_getElem?_getD, List.getElem?_append_left (by omega : i < R.length)]
+  | .tag _, _ => rfl
 
 def WfTs (n : Nat) (ts : List Term) : Prop := ∀ t ∈ ts, t.effBound ≤ n
 
@@ -168,7 +169,7 @@ theorem wf_sym {n : Nat} {i : Instr} {ts : List Term} (h : WfTs n ts) : WfTs n (
     · exact h t (List.mem_of_mem_drop ht)
 
 theorem conc_effs_append {σ : State} {stk R X : List UInt256} {S : SState}
-    (h : WfTs R.length S.ts) : conc ⟨σ, stk, R ++ X⟩ S = conc ⟨σ, stk, R⟩ S := by
+    (h : WfTs R.length S.ts) : conc ⟨σ, stk, R ++ X, fun _ => 0⟩ S = conc ⟨σ, stk, R, fun _ => 0⟩ S := by
   simp only [conc]
   congr 1
   apply List.map_congr_left
@@ -206,9 +207,17 @@ def XSState.init : XSState := ⟨SState.init, [], 0⟩
 
 def memStatic (f : Fork) (m : MemOp) : Bool := m != .TSTORE && m.toOp.availableInFork f
 
+/-- Symbolic stack after pushing `t`. -/
+def SState.push (t : Term) (S : SState) : SState :=
+  ⟨t :: S.ts, S.d, min S.slack (1024 - (S.ts.length + 1 : Nat))⟩
+
+/-- A tag assembles to some PUSH1..PUSH32: 3 gas. -/
+def tagCost : Nat := 3
+
 def xsstep (f : Fork) : XInstr → XSState → Option XSState
   | .base i, X => if i.static f then some { X with S := sstep i X.S, sc := X.sc + i.cost f }
                   else none
+  | .tag k, X => some { X with S := X.S.push (.tag k), sc := X.sc + tagCost }
   | .mem m, X =>
     if memStatic f m then
       let S1 := ensure m.arity X.S
@@ -228,7 +237,7 @@ def effRun (σ0 : State) (stk0 : List UInt256) :
     List (MemOp × List Term) → State → List UInt256 → Nat → State × List UInt256 × Nat
   | [], t, R, g => (t, R, g)
   | (m, args) :: E, t, R, g =>
-    let vals := args.map (·.eval ⟨σ0, stk0, R⟩)
+    let vals := args.map (·.eval ⟨σ0, stk0, R, fun _ => 0⟩)
     effRun σ0 stk0 E (m.apply vals t).2 (R ++ [(m.apply vals t).1.headD 0])
       (g + m.costAt vals t)
 
@@ -236,7 +245,7 @@ theorem effRun_append (σ0 : State) (stk0 : List UInt256) (m : MemOp) (args : Li
     ∀ (E : List (MemOp × List Term)) (t : State) (R : List UInt256) (g : Nat),
     effRun σ0 stk0 (E ++ [(m, args)]) t R g =
       let r := effRun σ0 stk0 E t R g
-      let vals := args.map (·.eval ⟨σ0, stk0, r.2.1⟩)
+      let vals := args.map (·.eval ⟨σ0, stk0, r.2.1, fun _ => 0⟩)
       ((m.apply vals r.1).2, r.2.1 ++ [(m.apply vals r.1).1.headD 0], r.2.2 + m.costAt vals r.1)
   | [], t, R, g => rfl
   | (m', a') :: E, t, R, g => by simp only [List.cons_append, effRun]; rw [effRun_append σ0 stk0 m args E]
@@ -288,6 +297,10 @@ theorem xsrun_mono {f : Fork} : ∀ (b : XBlock) (X X' : XSState), xsrun f b X =
       simp only [Option.some.injEq] at h1; subst h1
       simp only [sstep, ensure] at m1 m2 m3 hE
       exact ⟨by omega, by omega, by omega, E2, hE⟩
+    | tag k =>
+      simp only [xsstep, Option.some.injEq] at h1; subst h1
+      simp only [SState.push] at m1 m2 m3 hE
+      exact ⟨by omega, by omega, by omega, E2, hE⟩
     | mem m =>
       simp only [xsstep] at h1
       split at h1 <;> try contradiction
@@ -301,7 +314,7 @@ def XFinal (s0 : State) (X : XSState) (pc : UInt256) : Option State :=
   let r := effRun s0 s0.stack X.E s0 [] 0
   if X.S.d ≤ s0.stack.length ∧ (s0.stack.length : Int) - X.S.d ≤ X.S.slack ∧
       X.sc + r.2.2 ≤ s0.gasAvailable then
-    some { r.1 with stack := conc ⟨s0, s0.stack, r.2.1⟩ X.S,
+    some { r.1 with stack := conc ⟨s0, s0.stack, r.2.1, fun _ => 0⟩ X.S,
                     gasAvailable := s0.gasAvailable - X.sc - r.2.2, pc := pc }
   else none
 
@@ -311,7 +324,7 @@ def XInv (s0 : State) (X : XSState) (s : State) : Prop :=
   EnvEq r.1 s0 ∧ r.2.1.length = X.E.length ∧ WfTs r.2.1.length X.S.ts ∧
   X.S.d ≤ s0.stack.length ∧ (s0.stack.length : Int) - X.S.d ≤ X.S.slack ∧
   X.sc + r.2.2 ≤ s0.gasAvailable ∧
-  ∃ p, s = { r.1 with stack := conc ⟨s0, s0.stack, r.2.1⟩ X.S,
+  ∃ p, s = { r.1 with stack := conc ⟨s0, s0.stack, r.2.1, fun _ => 0⟩ X.S,
                       gasAvailable := s0.gasAvailable - X.sc - r.2.2, pc := p }
 
 /-- If the block's symbolic run reaches `X'` from an intermediate `X1` whose conditions
@@ -338,7 +351,7 @@ theorem MemOp.apply_res (m : MemOp) (vals : List UInt256) (t : State)
 
 theorem conc_push {σ : State} {stk R : List UInt256} {v : UInt256} {ts : List Term} {d : Nat}
     {sl : Int} (hw : WfTs R.length ts) :
-    conc ⟨σ, stk, R ++ [v]⟩ ⟨Term.eff R.length :: ts, d, sl⟩ = v :: conc ⟨σ, stk, R⟩ ⟨ts, d, sl⟩ := by
+    conc ⟨σ, stk, R ++ [v], fun _ => 0⟩ ⟨Term.eff R.length :: ts, d, sl⟩ = v :: conc ⟨σ, stk, R, fun _ => 0⟩ ⟨ts, d, sl⟩ := by
   have := conc_effs_append (σ := σ) (stk := stk) (X := [v]) (S := ⟨ts, d, sl⟩) hw
   simp only [conc, List.map_cons, List.cons_append] at this ⊢
   rw [this]
@@ -358,25 +371,30 @@ theorem xencode_length_cons (x : XInstr) (b : XBlock) :
     (xencode (x :: b)).length = x.size + (xencode b).length := by
   simp [xencode, XInstr.size]
 
+def XInstr.isTag : XInstr → Bool
+  | .tag _ => true
+  | _ => false
+
 theorem xsrun_xrun (f : Fork) (s0 : State) : ∀ (b : XBlock) (X X' : XSState) (s : State),
-    XInv s0 X s → xsrun f b X = some X' →
+    (∀ x ∈ b, x.isTag = false) → XInv s0 X s → xsrun f b X = some X' →
     xrun f b s = XFinal s0 X' (s.pc + UInt256.ofNat (xencode b).length) := by
   intro b
   induction b with
   | nil =>
-    intro X X' s hinv h
+    intro X X' s _ hinv h
     simp only [xsrun, Option.some.injEq] at h; subst h
     obtain ⟨-, -, -, h4, h5, h6, p, rfl⟩ := hinv
     unfold XFinal
     rw [if_pos ⟨h4, h5, h6⟩]
     simp [xrun, xencode, pc_add_zero]
   | cons x b ih =>
-    intro X X' s hinv h
+    intro X X' s hnt hinv h
+    have hnt' : ∀ y ∈ b, y.isTag = false := fun y hy => hnt y (List.mem_cons_of_mem _ hy)
     simp only [xsrun, Option.bind_eq_some_iff] at h
     obtain ⟨X1, h1, h2⟩ := h
     obtain ⟨hE, hR, hW, hd0, hsl0, hg0, p, hs⟩ := hinv
     have hEs : EnvEq s s0 := by rw [hs]; exact hE
-    have hss : s.stack = conc ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1⟩ X.S := by
+    have hss : s.stack = conc ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1, fun _ => 0⟩ X.S := by
       rw [hs]
     have hsg : s.gasAvailable = s0.gasAvailable - X.sc - (effRun s0 s0.stack X.E s0 [] 0).2.2 := by
       rw [hs]
@@ -392,17 +410,17 @@ theorem xsrun_xrun (f : Fork) (s0 : State) : ∀ (b : XBlock) (X X' : XSState) (
       simp only [Option.some.injEq] at h1; subst h1
       have hav : i.toOp.availableInFork f = true := by
         simp only [Instr.static, Bool.and_eq_true] at hst; exact hst.1
-      have hex := exec_conc f ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1⟩ i X.S hst hd0
+      have hex := exec_conc f ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1, fun _ => 0⟩ i X.S hst hd0
       simp only [XInstr.exec, XInstr.toOp, hav, if_true, XInstr.effect]
       rw [Instr.exec_congr hEs, hss, hex]
       by_cases hA : (sstep i X.S).d ≤ s0.stack.length ∧
-          (conc ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1⟩ (sstep i X.S)).length ≤ 1024
+          (conc ⟨s0, s0.stack, (effRun s0 s0.stack X.E s0 [] 0).2.1, fun _ => 0⟩ (sstep i X.S)).length ≤ 1024
       · rw [if_pos hA]
         simp only
         by_cases hG : i.cost f ≤ s.gasAvailable
         · rw [if_pos hG]
           simp only [Option.map_some, Option.bind_some]
-          rw [ih _ X' _ ?_ h2, hpc]
+          rw [ih _ X' _ hnt' ?_ h2, hpc]
           refine ⟨hE, hR, wf_sym (wf_ensure hW), hA.1, ?_, ?_, ?_⟩
           · have hl := hA.2
             rw [conc_length] at hl
@@ -422,6 +440,7 @@ theorem xsrun_xrun (f : Fork) (s0 : State) : ∀ (b : XBlock) (X X' : XSState) (
         rw [conc_length]
         simp only [sstep, ensure] at c1 c2 ⊢
         omega
+    | tag k => simp [XInstr.isTag] at hnt
     | mem m =>
       simp only [xsstep] at h1
       split at h1 <;> try contradiction
@@ -440,20 +459,20 @@ theorem xsrun_xrun (f : Fork) (s0 : State) : ∀ (b : XBlock) (X X' : XSState) (
       have hlen1 : m.arity ≤ S1.ts.length := by rw [← hS1]; exact ensure_length _ _
       have hW1 : WfTs R.length S1.ts := by rw [← hS1]; exact wf_ensure hW
       by_cases hd : S1.d ≤ s0.stack.length
-      · have hce := conc_ensure ⟨s0, s0.stack, R⟩ X.S m.arity
+      · have hce := conc_ensure ⟨s0, s0.stack, R, fun _ => 0⟩ X.S m.arity
           (by have h' := hd; rw [← hS1] at h'; simpa [ensure] using h')
         rw [hS1] at hce
-        have hstk : s.stack = S1.ts.map (·.eval ⟨s0, s0.stack, R⟩) ++ s0.stack.drop S1.d := by
+        have hstk : s.stack = S1.ts.map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) ++ s0.stack.drop S1.d := by
           rw [hss, ← hce]; rfl
-        have hlm : m.arity ≤ (S1.ts.map (·.eval ⟨s0, s0.stack, R⟩)).length := by simpa using hlen1
-        have htake : s.stack.take m.arity = (S1.ts.take m.arity).map (·.eval ⟨s0, s0.stack, R⟩) := by
+        have hlm : m.arity ≤ (S1.ts.map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩)).length := by simpa using hlen1
+        have htake : s.stack.take m.arity = (S1.ts.take m.arity).map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) := by
           rw [hstk, List.take_append_of_le_length hlm, List.map_take]
         have hdrop : s.stack.drop m.arity =
-            (S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R⟩) ++ s0.stack.drop S1.d := by
+            (S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) ++ s0.stack.drop S1.d := by
           rw [hstk, List.drop_append_of_le_length hlm, List.map_drop]
         have harity : m.arity ≤ s.stack.length := by rw [hstk]; simp; omega
         rw [htake, hdrop]
-        generalize hvals : (S1.ts.take m.arity).map (·.eval ⟨s0, s0.stack, R⟩) = vals
+        generalize hvals : (S1.ts.take m.arity).map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) = vals
         have hcost : m.costAt vals s = m.costAt vals (effRun s0 s0.stack X.E s0 [] 0).1 := by
           rw [hs]; exact MemOp.costAt_congr _ _ _ _ _ _
         have happ : m.apply vals s = ((m.apply vals (effRun s0 s0.stack X.E s0 [] 0).1).1,
@@ -464,16 +483,16 @@ theorem xsrun_xrun (f : Fork) (s0 : State) : ∀ (b : XBlock) (X X' : XSState) (
         have hres := MemOp.apply_res m vals (effRun s0 s0.stack X.E s0 [] 0).1 hvlen
         have hg1 := effRun_append s0 s0.stack m (S1.ts.take m.arity) X.E s0 [] 0
         simp only [hRd, hvals] at hg1
-        by_cases hB : ((S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R⟩) ++
+        by_cases hB : ((S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) ++
               s0.stack.drop S1.d).length + (if m.pushes then 1 else 0) ≤ 1024 ∧
             m.costAt vals s ≤ s.gasAvailable
         · rw [if_pos ⟨harity, hB⟩]
           simp only [Option.map_some, Option.bind_some]
-          rw [ih _ X' _ ?_ h2, hpc]
+          rw [ih _ X' _ hnt' ?_ h2, hpc]
           have hWd : WfTs R.length (S1.ts.drop m.arity) := fun t ht => hW1 t (List.mem_of_mem_drop ht)
           have hstack : (m.apply vals (effRun s0 s0.stack X.E s0 [] 0).1).1 ++
-              ((S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R⟩) ++ s0.stack.drop S1.d) =
-              conc ⟨s0, s0.stack, R ++ [(m.apply vals (effRun s0 s0.stack X.E s0 [] 0).1).1.headD 0]⟩
+              ((S1.ts.drop m.arity).map (·.eval ⟨s0, s0.stack, R, fun _ => 0⟩) ++ s0.stack.drop S1.d) =
+              conc ⟨s0, s0.stack, R ++ [(m.apply vals (effRun s0 s0.stack X.E s0 [] 0).1).1.headD 0], fun _ => 0⟩
                 ⟨(if m.pushes then [Term.eff X.E.length] else []) ++ S1.ts.drop m.arity, S1.d,
                  min S1.slack (1024 - ((if m.pushes then [Term.eff X.E.length] else []) ++
                    S1.ts.drop m.arity).length)⟩ := by
@@ -547,7 +566,7 @@ theorem effRun_normE (σ0 : State) (stk0 : List UInt256) :
   | (m1, a1) :: E1, (m2, a2) :: E2, t, R, g, h => by
     simp only [normE, List.map_cons, List.cons.injEq, Prod.mk.injEq] at h
     obtain ⟨⟨rfl, ha⟩, hE⟩ := h
-    have hv : a1.map (·.eval ⟨σ0, stk0, R⟩) = a2.map (·.eval ⟨σ0, stk0, R⟩) := map_eval_of_norm ha
+    have hv : a1.map (·.eval ⟨σ0, stk0, R, fun _ => 0⟩) = a2.map (·.eval ⟨σ0, stk0, R, fun _ => 0⟩) := map_eval_of_norm ha
     simp only [effRun, hv]
     exact effRun_normE σ0 stk0 E1 E2 _ _ _ hE
 
@@ -570,6 +589,7 @@ theorem XInv_init (s0 : State) (hl : s0.stack.length ≤ 1024) : XInv s0 XSState
 /-- **Stage 8 checker soundness.** If `xcheck` accepts `b'` for `b`, then from any frame on
     which `b` runs, `b'` runs to the same frame except `pc` and with at least as much gas. -/
 theorem xcheck_sound {f : Fork} {b b' : XBlock} {s0 s1 : State} (hc : xcheck f b b' = true)
+    (hnt : ∀ x ∈ b, x.isTag = false) (hnt' : ∀ x ∈ b', x.isTag = false)
     (hl : s0.stack.length ≤ 1024) (h : xrun f b s0 = some s1) :
     ∃ s2, xrun f b' s0 = some s2 ∧
       s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
@@ -579,8 +599,8 @@ theorem xcheck_sound {f : Fork} {b b' : XBlock} {s0 s1 : State} (hc : xcheck f b
   next X X' hX hX' =>
   simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hc
   obtain ⟨⟨⟨⟨hE, hd⟩, hsl⟩, hsc⟩, hts⟩ := hc
-  have h1 := xsrun_xrun f s0 b XSState.init X s0 (XInv_init s0 hl) hX
-  have h2 := xsrun_xrun f s0 b' XSState.init X' s0 (XInv_init s0 hl) hX'
+  have h1 := xsrun_xrun f s0 b XSState.init X s0 hnt (XInv_init s0 hl) hX
+  have h2 := xsrun_xrun f s0 b' XSState.init X' s0 hnt' (XInv_init s0 hl) hX'
   rw [h1] at h
   have hr : effRun s0 s0.stack X'.E s0 [] 0 = effRun s0 s0.stack X.E s0 [] 0 :=
     effRun_normE _ _ _ _ _ _ _ hE.symm
@@ -602,12 +622,13 @@ theorem xcheck_sound {f : Fork} {b b' : XBlock} {s0 s1 : State} (hc : xcheck f b
     code, the specification steps to the frame the original `b` would reach, except `pc`,
     with at least as much gas left. -/
 theorem xcheck_steps {b b' : XBlock} {s s1 : State} (hc : xcheck s.fork b b' = true)
+    (hnt : ∀ x ∈ b, x.isTag = false) (hnt' : ∀ x ∈ b', x.isTag = false)
     (hready : Ready s) (hcode : CodeAt s.executionEnv.code s.pc.toNat (xencode b'))
     (hpc : s.pc.toNat + (xencode b').length < UInt256.size) (hl : s.stack.length ≤ 1024)
     (h : xrun s.fork b s = some s1) :
     ∃ s2, Steps s s2 ∧ s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
       s1.gasAvailable ≤ s2.gasAvailable := by
-  obtain ⟨s2, h2, heq, hg⟩ := xcheck_sound hc hl h
+  obtain ⟨s2, h2, heq, hg⟩ := xcheck_sound hc hnt hnt' hl h
   exact ⟨s2, xrun_sound b' s s2 hready hcode hpc h2, heq, hg⟩
 
 end EvmOpt

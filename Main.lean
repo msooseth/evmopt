@@ -143,9 +143,9 @@ def main (args : List String) : IO UInt32 := do
   | ["opt", path] => optimizeFile f path; return 0
   | ["check", a, b] => checkPair f a b
   | ["xcheck", a, b] =>
-    let parse (s : String) : Option XBlock :=
-      (parseBlock s).mapM fun | .ins x => some x | .other _ => none
-    match parse a, parse b with
+    let pa := tagItems [] (parseBlock a)
+    let pb := pa.bind fun (_, tbl) => tagItems tbl (parseBlock b)
+    match pa.map (·.1), pb.map (·.1) with
     | some x, some y =>
       IO.println s!"xcheck: {xcheckReason f x y} (stack gas {xcost f x} -> {xcost f y})"
       return if xcheck f x y then 0 else 1

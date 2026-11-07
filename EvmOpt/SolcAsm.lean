@@ -21,8 +21,8 @@ def solcItem (f : Fork) (j : Json) : Item :=
   else if name = "PUSH0" then .ins (.base (.push []))
   else match xopName? name, value with
     | some i, none => .ins i
-    | _, some v => .other s!"{name} {v}"
-    | _, none => .other name
+    | _, some v => if name.startsWith "PUSH" then .ptag s!"{name} {v}" else .other s!"{name} {v}"
+    | _, none => if name.startsWith "PUSH" then .ptag name else .other name
 
 partial def collectCodes (j : Json) : List (Array Json) :=
   let here := match j.getObjValAs? (Array Json) ".code" with
@@ -57,7 +57,7 @@ def splitBlocks (items : List Item) : List (List Item) :=
         ((if cur.isEmpty then done else cur.reverse :: done), [it])
       else if endsBlock s then ((it :: cur).reverse :: done, [])
       else (done, it :: cur)
-    | .ins _ => (done, it :: cur)
+    | _ => (done, it :: cur)
   let (done, cur) := items.foldl step ([], [])
   (if cur.isEmpty then done else cur.reverse :: done).reverse
 
@@ -65,12 +65,12 @@ def stackOnly (b : List Item) : Option Block :=
   b.mapM fun | .ins (.base i) => some i | _ => none
 
 def effectBlock (b : List Item) : Option XBlock :=
-  b.mapM fun | .ins x => some x | .other _ => none
+  b.mapM fun | .ins x => some x | _ => none
 
 /-- Strip a leading tag/JUMPDEST and trailing jump/halt so the stack-only body remains. -/
 def body (b : List Item) : List Item :=
   let b := b.dropWhile fun | .other s => startsBlock s | _ => false
-  (b.reverse.dropWhile fun | .other s => endsBlock s || s.startsWith "PUSH [tag]" | _ => false).reverse
+  (b.reverse.dropWhile fun | .other s => endsBlock s | .ptag _ => true | _ => false).reverse
 
 /-- Why `check` rejected, for the report. -/
 def checkReason (f : Fork) (b b' : Block) : String :=

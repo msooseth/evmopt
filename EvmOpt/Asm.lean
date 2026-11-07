@@ -3,10 +3,11 @@ import EvmOpt.XOpt
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
 
-/-- An assembly item: a supported straight-line instruction, or anything else (kept verbatim
-    and treated as a barrier). -/
+/-- An assembly item: a supported instruction, an assembler constant (`PUSH [tag] 5`, …,
+    kept as text), or anything else (kept verbatim; a barrier). -/
 inductive Item
   | ins (i : XInstr)
+  | ptag (s : String)
   | other (s : String)
   deriving Repr, Inhabited
 
@@ -79,7 +80,7 @@ partial def parseTokens : List String → List Item
   | [] => []
   | "PUSH0" :: rest => .ins (.base (.push [])) :: parseTokens rest
   | "PUSH" :: kind :: v :: rest =>
-    if pseudoPushArgs.contains kind then .other s!"PUSH {kind} {v}" :: parseTokens rest
+    if pseudoPushArgs.contains kind then .ptag s!"PUSH {kind} {v}" :: parseTokens rest
     else pushAsm kind (v :: rest)
   | ["PUSH", v] => pushAsm v []
   | t :: rest =>
@@ -116,29 +117,48 @@ def Instr.show : Instr → String
 def XInstr.show : XInstr → String
   | .base i => i.show
   | .mem m => ((memNames.find? (·.2 == m)).map (·.1)).getD "?"
+  | .tag k => s!"PUSH [tag?] {k}"
 
 def Item.show : Item → String
   | .ins i => i.show
+  | .ptag s => s
   | .other s => s
 
-/-- Maximal runs of supported instructions, separated by barriers. -/
-def runs : List Item → List (Sum XBlock String)
+/-- Number assembler constants by their text: equal text, equal tag. -/
+def tagItems (tbl : List String) (items : List Item) : Option (XBlock × List String) :=
+  items.foldlM (fun (b, t) it => match it with
+    | .ins x => some (b ++ [x], t)
+    | .ptag s => match t.idxOf? s with
+      | some k => some (b ++ [.tag k], t)
+      | none => some (b ++ [.tag t.length], t ++ [s])
+    | .other _ => none) ([], tbl)
+
+def untag (tbl : List String) (b : XBlock) : List Item :=
+  b.map fun | .tag k => .ptag (tbl.getD k "PUSH ?") | x => .ins x
+
+/-- Maximal runs of supported instructions and assembler constants, separated by barriers. -/
+def runs : List Item → List (Sum (List Item) String)
   | [] => []
   | .other s :: rest => .inr s :: runs rest
-  | .ins i :: rest =>
+  | it :: rest =>
     match runs rest with
-    | .inl b :: more => .inl (i :: b) :: more
-    | more => .inl [i] :: more
+    | .inl b :: more => .inl (it :: b) :: more
+    | more => .inl [it] :: more
 
 def optimizeItems (f : Fork) (items : List Item) : List Item :=
   (runs items).flatMap fun
-    | .inl b => (optimizeX f b).map .ins
+    | .inl r => match tagItems [] r with
+      | some (b, tbl) => untag tbl (optimizeX f b)
+      | none => r
     | .inr s => [.other s]
 
 def itemsCost (f : Fork) (items : List Item) : Nat :=
-  (runs items).foldl (fun acc r => match r with | .inl b => acc + xcost f b | .inr _ => acc) 0
+  (runs items).foldl (fun acc r => match r with
+    | .inl r => acc + ((tagItems [] r).map (xcost f ·.1)).getD 0
+    | .inr _ => acc) 0
 
 def itemsSize (items : List Item) : Nat :=
-  items.foldl (fun acc i => match i with | .ins i => acc + i.size | .other _ => acc) 0
+  items.foldl (fun acc i => match i with
+    | .ins i => acc + i.size | .ptag _ => acc + 3 | .other _ => acc) 0
 
 end EvmOpt

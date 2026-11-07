@@ -511,6 +511,7 @@ def norm : Term → Term
   | .env0 e => .env0 e
   | .env1 e a => .env1 e (norm a)
   | .eff i => .eff i
+  | .tag k => .tag k
 
 theorem norm_eval (ρ : Ctx) : ∀ t : Term, (norm t).eval ρ = t.eval ρ
   | .var _ => rfl
@@ -522,5 +523,6 @@ theorem norm_eval (ρ : Ctx) : ∀ t : Term, (norm t).eval ρ = t.eval ρ
   | .env0 _ => rfl
   | .env1 e a => by rw [norm]; simp only [Term.eval, norm_eval ρ a]
   | .eff _ => rfl
+  | .tag _ => rfl
 
 end EvmOpt

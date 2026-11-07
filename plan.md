@@ -188,8 +188,18 @@ rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
   CSE when no intervening memory write overlaps its range.
 - [todo] Scheduler/search: keep effects in a legal order; emit loads/stores from the
   effect list.
-- [todo] `PUSH [tag]` and other assembler constants (`PUSH #[$]`, `PUSH [$]`, `PUSH data`)
-  as opaque symbolic constants, so blocks are not cut there.
+- [done] Assembler constants (`PUSH [tag]`, `PUSH #[$]`, `PUSH [$]`, `PUSH data`, …) as
+  opaque atoms (`XInstr.tag`, `Term.tag`); concrete core unchanged. `xcheck_sound_asm`: for
+  every assignment of PUSH1..32 values to tags, the assembled candidate matches the assembled
+  original (via `xsrun_assemble`: lifting commutes with substitution). Schedulers use
+  sentinel PUSH3s, validated against the real asm blocks.
+- [done] Scheduler work to close the gap with gasol (see `benchmark-*.md`): pre-clean of
+  dead inputs, last-use SWAP1/in-place commutative operands, interleaved effect emission,
+  bottom-preserving goal construction, effect-ordered search, `DIV/MUL` by `2^k`, `PUSH c
+  NOT` recipe. On the 4406 blocks gasol improves: evmopt 5655 -> 10474 gas (gasol 16279, of
+  which ~2321 on effect blocks exceed the original stack peak).
+- [todo] Reordering independent effects (gasol: 576 gas on effect blocks) — needs
+  disjointness reasoning (milestone 2).
 - [todo] Corpus re-run vs gasol including its memory/storage blocks (gasol temp dir inside
   the scratchpad, deleted afterwards: one run left 11G in /tmp); log confirmed bugs.
 

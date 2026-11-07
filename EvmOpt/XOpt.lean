@@ -1,4 +1,4 @@
-import EvmOpt.MemLift
+import EvmOpt.MemTags
 import EvmOpt.Search
 
 /-! Untrusted optimisation of effect blocks; every candidate goes through `xcheck`. -/
@@ -8,9 +8,22 @@ open EvmSemantics EvmSemantics.EVM
 
 def XInstr.base? : XInstr → Option Instr
   | .base i => some i
-  | .mem _ => none
+  | _ => none
 
-def xcost (f : Fork) (b : XBlock) : Nat := cost f (b.filterMap XInstr.base?)
+def xcost (f : Fork) (b : XBlock) : Nat :=
+  (b.map fun | .base i => i.cost f | .tag _ => tagCost | .mem _ => 0).sum
+
+/-- Schedulers work on blocks where each tag is a sentinel PUSH3; any misuse of a sentinel
+    (e.g. computing it instead of pushing it) is caught by `xcheck` on the real blocks. -/
+def sentinel (k : Nat) : List UInt8 := [0xfe, (k / 256 % 256).toUInt8, (k % 256).toUInt8]
+
+def toSentinel (b : XBlock) : XBlock :=
+  b.map fun | .tag k => .base (.push (sentinel k)) | x => x
+
+def fromSentinel (b : XBlock) : XBlock :=
+  b.map fun
+    | .base (.push [0xfe, h, l]) => .tag (h.toNat * 256 + l.toNat)
+    | x => x
 def xsize (b : XBlock) : Nat := (xencode b).length
 def xscore (f : Fork) (b : XBlock) : Nat := xcost f b + 3 * xsize b
 
@@ -18,6 +31,7 @@ def xscore (f : Fork) (b : XBlock) : Nat := xcost f b + 3 * xsize b
 def segments : XBlock → List (Sum Block MemOp)
   | [] => []
   | .mem m :: b => .inr m :: segments b
+  | .tag _ :: b => segments b
   | .base i :: b =>
     match segments b with
     | .inl seg :: rest => .inl (i :: seg) :: rest
@@ -25,12 +39,13 @@ def segments : XBlock → List (Sum Block MemOp)
 
 /-- Optimise each stack-only segment on its own (its interface stays fixed). -/
 def segOpt (f : Fork) (b : XBlock) : XBlock :=
-  (segments b).flatMap fun
+  fromSentinel <| (segments (toSentinel b)).flatMap fun
     | .inl seg => (optimizeBlock f seg).map .base
     | .inr m => [.mem m]
 
 /-- Greedy lowering that emits the effects in their original order. -/
-def xgreedyWith (pre bottom : Bool) (f : Fork) (b : XBlock) : Option XBlock := do
+def xgreedyWith (pre bottom : Bool) (f : Fork) (b0 : XBlock) : Option XBlock := do
+  let b := toSentinel b0
   let X ← xlift f b
   let goal := X.S.ts.map norm
   let effs := (X.E.map fun e => (e.1, e.2.map norm)).toArray
@@ -63,7 +78,7 @@ def xgreedyWith (pre bottom : Bool) (f : Fork) (b : XBlock) : Option XBlock := d
       return (c', pr ++ p'.map XInstr.base, dd', k)) (init, [], demand, 0)
   let (cur, prog, _, _) ← flush effs.size st
   let fix ← shuffle cur goal
-  return pre0.map XInstr.base ++ prog ++ fix.map XInstr.base
+  return fromSentinel (pre0.map XInstr.base ++ prog ++ fix.map XInstr.base)
 
 def xgreedy (f : Fork) (b : XBlock) : Option XBlock :=
   [(false, false), (true, false), (false, true), (true, true)].foldl (fun best (pre, bot) =>
@@ -74,7 +89,8 @@ def xgreedy (f : Fork) (b : XBlock) : Option XBlock :=
 
 /-- Cheapest-first search for effect blocks: effects only in their original order and only on
     arguments equal (after normalisation) to the original's. -/
-def xsearch (f : Fork) (b : XBlock) (maxNodes : Nat := 5000) : Option XBlock := Id.run do
+def xsearch (f : Fork) (b0 : XBlock) (maxNodes : Nat := 5000) : Option XBlock := Id.run do
+  let b := toSentinel b0
   let some X := xlift f b | return none
   let target := X.S.ts.map norm
   let effs := (normE X.E).toArray
@@ -119,10 +135,10 @@ def xsearch (f : Fork) (b : XBlock) (maxNodes : Nat := 5000) : Option XBlock := 
       nodes := nodes + 1
       if T.E.length == effs.size && reaches X.S T.S then
         let cand := prog.reverse
-        return if xcost f cand < budget then some cand else none
+        return if xcost f cand < budget then some (fromSentinel cand) else none
       if prog.length ≥ b.length + 2 then continue
       for x in moves T do
-        let g' := g + (match x with | .base i => i.cost f | .mem _ => 0)
+        let g' := g + (match x with | .base i => i.cost f | _ => 0)
         let sz' := sz + x.size
         if g' ≥ budget || sz' > sizeBudget + (budget - g') / 3 then continue
         let some T1 := xsstep f x T | continue
@@ -138,22 +154,27 @@ def xsearch (f : Fork) (b : XBlock) (maxNodes : Nat := 5000) : Option XBlock := 
 def xtry (f : Fork) (b c : XBlock) : XBlock :=
   if xcheck f b c && decide (xscore f c < xscore f b) then c else b
 
-/-- `b` reaches, from `s0`, the frame the original reached (`s1`) except pc, with no less gas. -/
-def Good (f : Fork) (s0 s1 : State) (b : XBlock) : Prop :=
-  ∃ s2, xrun f b s0 = some s2 ∧ s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
+/-- With tags assembled by `ρ`, `b` reaches from `s0` the frame the original reached (`s1`)
+    except pc, with no less gas. -/
+def Good (f : Fork) (ρ : Nat → List UInt8) (s0 s1 : State) (b : XBlock) : Prop :=
+  ∃ s2, xrun f (assemble ρ b) s0 = some s2 ∧
+    s2 = { s1 with gasAvailable := s2.gasAvailable, pc := s2.pc } ∧
     s1.gasAvailable ≤ s2.gasAvailable
 
-theorem good_refl {f : Fork} {b : XBlock} {s0 s1 : State} (h : xrun f b s0 = some s1) :
-    Good f s0 s1 b := ⟨s1, h, rfl, Nat.le_refl _⟩
+def TagsFit (ρ : Nat → List UInt8) : Prop := ∀ k, 1 ≤ (ρ k).length ∧ (ρ k).length ≤ 32
 
-theorem xtry_good {f : Fork} {s0 s1 : State} {b : XBlock} (hl : s0.stack.length ≤ 1024)
-    (hg : Good f s0 s1 b) (c : XBlock) : Good f s0 s1 (xtry f b c) := by
+theorem good_refl {f : Fork} {ρ : Nat → List UInt8} {b : XBlock} {s0 s1 : State}
+    (h : xrun f (assemble ρ b) s0 = some s1) : Good f ρ s0 s1 b := ⟨s1, h, rfl, Nat.le_refl _⟩
+
+theorem xtry_good {f : Fork} {ρ : Nat → List UInt8} {s0 s1 : State} {b : XBlock} (hρ : TagsFit ρ)
+    (hl : s0.stack.length ≤ 1024) (hg : Good f ρ s0 s1 b) (c : XBlock) :
+    Good f ρ s0 s1 (xtry f b c) := by
   obtain ⟨s2, h2, e2, g2⟩ := hg
   unfold xtry
   split
   · next hc =>
     simp only [Bool.and_eq_true] at hc
-    obtain ⟨s3, h3, e3, g3⟩ := xcheck_sound hc.1 hl h2
+    obtain ⟨s3, h3, e3, g3⟩ := xcheck_sound_asm ρ hρ hc.1 hl h2
     exact ⟨s3, h3, by rw [e3, e2], by omega⟩
   · exact ⟨s2, h2, e2, g2⟩
 
@@ -162,25 +183,31 @@ def tryOpt (f : Fork) (o : Option XBlock) (b : XBlock) : XBlock :=
   | some c => xtry f b c
   | none => b
 
-theorem tryOpt_good {f : Fork} {s0 s1 : State} {b : XBlock} (hl : s0.stack.length ≤ 1024)
-    (hg : Good f s0 s1 b) (o : Option XBlock) : Good f s0 s1 (tryOpt f o b) := by
+theorem tryOpt_good {f : Fork} {ρ : Nat → List UInt8} {s0 s1 : State} {b : XBlock}
+    (hρ : TagsFit ρ) (hl : s0.stack.length ≤ 1024) (hg : Good f ρ s0 s1 b) (o : Option XBlock) :
+    Good f ρ s0 s1 (tryOpt f o b) := by
   unfold tryOpt; split
-  · exact xtry_good hl hg _
+  · exact xtry_good hρ hl hg _
   · exact hg
 
 def optimizeX (f : Fork) (b : XBlock) : XBlock :=
   let b1 := xtry f b (segOpt f b)
   let b2 := tryOpt f (xgreedy f b1) b1
-  if b.any (· matches .mem _) && b2.length ≤ 24 then tryOpt f (xsearch f b2) b2 else b2
+  if b.any (fun x => x matches .mem _ || x matches .tag _) && b2.length ≤ 24 then
+    tryOpt f (xsearch f b2) b2
+  else b2
 
-theorem optimizeX_sound {f : Fork} {b : XBlock} {s0 s1 : State} (hl : s0.stack.length ≤ 1024)
-    (h : xrun f b s0 = some s1) : Good f s0 s1 (optimizeX f b) := by
-  have h1 := xtry_good hl (good_refl h) (segOpt f b)
-  have h2 := tryOpt_good hl h1 (xgreedy f (xtry f b (segOpt f b)))
+/-- **Optimiser soundness.** For every tag assignment, if the assembled original runs from
+    `s0` to `s1`, the assembled optimised block reaches `s1` except pc, with no less gas. -/
+theorem optimizeX_sound {f : Fork} {ρ : Nat → List UInt8} {b : XBlock} {s0 s1 : State}
+    (hρ : TagsFit ρ) (hl : s0.stack.length ≤ 1024) (h : xrun f (assemble ρ b) s0 = some s1) :
+    Good f ρ s0 s1 (optimizeX f b) := by
+  have h1 := xtry_good hρ hl (good_refl h) (segOpt f b)
+  have h2 := tryOpt_good hρ hl h1 (xgreedy f (xtry f b (segOpt f b)))
   unfold optimizeX
   dsimp only
   split
-  · exact tryOpt_good hl h2 _
+  · exact tryOpt_good hρ hl h2 _
   · exact h2
 
 /-- Why `xcheck` rejects, for reports. -/

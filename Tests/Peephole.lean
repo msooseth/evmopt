@@ -136,3 +136,13 @@ def xopt (s : String) (f : Fork := .Cancun) : String :=
 #guard (xcounterexample .Cancun
   (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x20 MSTORE PUSH0 MLOAD")
   (xblk "DUP1 PUSH0 MSTORE DUP2 PUSH1 0x20 MSTORE DUP1")).isNone
+
+-- assembler constants are opaque atoms: blocks are no longer cut at them
+def topt (s : String) (f : Fork := .Cancun) : String :=
+  " ".intercalate ((optimizeItems f (parseBlock s)).map Item.show)
+
+#guard topt "PUSH [tag] 7 SWAP1 SWAP1 PUSH1 0x01 PUSH1 0x02 ADD" = "PUSH [tag] 7 PUSH1 0x03"
+#guard topt "PUSH [tag] 7 DUP1 POP" = "PUSH [tag] 7"
+-- a tag is not a known constant: no folding through it
+#guard topt "PUSH [tag] 7 PUSH1 0x00 ADD" = "PUSH [tag] 7"
+#guard topt "PUSH [tag] 7 PUSH [tag] 8 EQ" = "PUSH [tag] 7 PUSH [tag] 8 EQ"

@@ -86,9 +86,12 @@ def exec (m : MemOp) (s : State) : Option State :=
 
 end MemOp
 
+/-- `tag k` is an assembler-provided constant (`PUSH [tag] k` and friends): symbolic only;
+    it must be assembled into a real PUSH before it can run. -/
 inductive XInstr
   | base (i : Instr)
   | mem (m : MemOp)
+  | tag (k : Nat)
   deriving DecidableEq, Repr, Inhabited
 
 abbrev XBlock := List XInstr
@@ -98,10 +101,13 @@ namespace XInstr
 def toOp : XInstr → Operation
   | base i => i.toOp
   | mem m => m.toOp
+  | tag _ => .Push ⟨2⟩
 
+/-- For `tag`, a size estimate (the assembler typically emits PUSH2). -/
 def bytes : XInstr → List UInt8
   | base i => i.bytes
   | mem m => [m.byte]
+  | tag _ => [0x61, 0, 0]
 
 def size (x : XInstr) : Nat := x.bytes.length
 
@@ -116,6 +122,7 @@ def effect (f : Fork) (x : XInstr) (s : State) : Option State :=
       else none
     | none => none
   | mem m => m.exec s
+  | tag _ => none
 
 /-- One instruction: its effect, then `pc` past it. -/
 def exec (f : Fork) (x : XInstr) (s : State) : Option State :=
@@ -172,6 +179,7 @@ theorem xstep {s s' : State} {x : XInstr} (hr : Ready s)
     simp only [Option.some.injEq] at hx
     subst hx
     exact step_instr hr hc hg hi
+  | tag _ => simp [XInstr.effect] at hx
   | mem m =>
     simp only [XInstr.effect] at hx
     have hop := decodedOp_mem hc ha
@@ -234,6 +242,7 @@ theorem effect_preserves {f : Fork} {x : XInstr} {s s1 : State} (h : x.effect f 
     split at h <;> try contradiction
     split at h <;> try contradiction
     simp only [Option.some.injEq] at h; subst h; exact ⟨rfl, rfl⟩
+  | tag _ => simp [XInstr.effect] at h
   | mem m =>
     simp only [XInstr.effect, MemOp.exec] at h
     split at h <;> (try contradiction) <;> (split at h <;> try contradiction) <;>

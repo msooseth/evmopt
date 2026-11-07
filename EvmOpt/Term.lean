@@ -9,6 +9,7 @@ structure Ctx where
   σ : State
   stk : List UInt256
   effs : List UInt256 := []
+  tags : Nat → UInt256 := fun _ => 0
 
 /-- Symbolic word: `var i` is the `i`-th input stack item (0 = top); `eff i` is the result
     of the block's `i`-th effect. -/
@@ -21,6 +22,7 @@ inductive Term
   | env0 (e : EnvOp)
   | env1 (e : EnvOp) (a : Term)
   | eff (i : Nat)
+  | tag (k : Nat)
   deriving DecidableEq, Repr, Inhabited, Ord, Hashable
 
 namespace Term
@@ -34,6 +36,7 @@ def eval (ρ : Ctx) : Term → UInt256
   | env0 e => e.eval ρ.σ []
   | env1 e a => e.eval ρ.σ [a.eval ρ]
   | eff i => ρ.effs.getD i 0
+  | tag k => ρ.tags k
 
 end Term
 

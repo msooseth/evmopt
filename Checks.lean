@@ -19,3 +19,9 @@ info: 'EvmOpt.optimizeWith_steps' depends on axioms: [propext, Classical.choice,
 
 /-- info: 'EvmOpt.xcheck_steps' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms EvmOpt.xcheck_steps
+
+/-- info: 'EvmOpt.xcheck_sound_asm' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms EvmOpt.xcheck_sound_asm
+
+/-- info: 'EvmOpt.optimizeX_sound' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms EvmOpt.optimizeX_sound

@@ -21,8 +21,8 @@ theorem run_lift {f : Fork} {σ : State} {b : Block} {stk : List UInt256} (hl : 
     run f σ b stk = match lift f b with
       | none => none
       | some S => if S.d ≤ stk.length ∧ (stk.length : Int) - S.d ≤ S.slack
-                  then some (conc ⟨σ, stk, []⟩ S) else none := by
-  have := srun_run f ⟨σ, stk, []⟩ b SState.init (by simp [SState.init])
+                  then some (conc ⟨σ, stk, [], fun _ => 0⟩ S) else none := by
+  have := srun_run f ⟨σ, stk, [], fun _ => 0⟩ b SState.init (by simp [SState.init])
     (by simp [SState.init]; omega)
   rwa [conc_init] at this
 
@@ -51,12 +51,12 @@ theorem check_sound {f : Fork} {σ : State} {b b' : Block} {stk r : List UInt256
   simp only
   rw [if_pos ⟨by omega, by omega⟩]
   congr 1
-  have hv := vars_eval ⟨σ, stk, []⟩ S'.d (S.d - S'.d) (by simp; omega)
+  have hv := vars_eval ⟨σ, stk, [], fun _ => 0⟩ S'.d (S.d - S'.d) (by simp; omega)
   simp only [conc]
   have hdrop : stk.drop S'.d = (stk.drop S'.d).take (S.d - S'.d) ++ stk.drop S.d := by
     conv => lhs; rw [← List.take_append_drop (S.d - S'.d) (stk.drop S'.d)]
     rw [List.drop_drop]; congr 2; omega
-  rw [hdrop, ← hv, ← List.append_assoc, ← List.map_append, map_eval_of_norm (ρ := ⟨σ, stk, []⟩) hts]
+  rw [hdrop, ← hv, ← List.append_assoc, ← List.map_append, map_eval_of_norm (ρ := ⟨σ, stk, [], fun _ => 0⟩) hts]
 
 /-- Keep the candidate only if the checker accepts it. -/
 def optimizeWith (f : Fork) (rw : Block → Block) (b : Block) : Block :=

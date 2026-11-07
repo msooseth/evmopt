@@ -102,3 +102,14 @@ def sopt (s : String) (f : Fork := .Cancun) : String :=
   = "PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB DUP1 DUP5 AND SWAP1 DUP4 AND EQ"
 -- the mask stays a short recipe (folding to PUSH20 would add 13 bytes); DUP1 saves a byte
 #guard sopt "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB" = "PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB"
+-- gasol type-2 rules
+#guard ok "DUP2 DUP2 XOR ISZERO" "DUP2 DUP2 EQ"
+#guard ok "DUP2 DUP2 SUB ISZERO" "DUP2 DUP2 EQ"
+#guard ok "PUSH0 SWAP1 GT ISZERO" "ISZERO"
+#guard ok "ISZERO PUSH1 0x01 EQ" "ISZERO"
+#guard ok "LT ISZERO ISZERO" "LT"
+#guard !ok "ADD ISZERO ISZERO" "ADD"
+#guard ok "PUSH1 0x01 SWAP1 SHL MUL" "SHL"
+#guard ok "PUSH1 0x01 SWAP1 SHL SWAP1 DIV" "SHR"
+#guard sopt "SUB ISZERO" = "EQ"
+#guard sopt "XOR ISZERO" = "EQ"

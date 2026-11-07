@@ -61,11 +61,58 @@ def mask160 : Nat := 2 ^ 160 - 1
 def c0 : Term := .const ⟨0⟩
 def c1 : Term := .const (ofNat 1)
 
+/-- Terms whose value is 0 or 1. -/
+def isBoolT (t : Term) : Bool :=
+  match t with
+  | .app2 .LT _ _ | .app2 .GT _ _ | .app2 .SLT _ _ | .app2 .SGT _ _ | .app2 .EQ _ _ => true
+  | .app1 .ISZERO _ => true
+  | .const v => decide (v.toNat ≤ 1)
+  | _ => false
+
+theorem isBoolT_eval {t : Term} (σ : State) (stk : List UInt256) (h : isBoolT t = true) :
+    IsBool (t.eval σ stk) := by
+  cases t with
+  | app2 o a b => cases o <;> simp [isBoolT] at h <;> exact isBool_ofNat01 _
+  | app1 o a => cases o <;> simp [isBoolT] at h <;> exact isBool_ofNat01 _
+  | const v => simpa [isBoolT, IsBool, Term.eval] using h
+  | _ => simp [isBoolT] at h
+
+/-- ISZERO of an already-normalised term. -/
+def izRule (a : Term) : Term :=
+  match a with
+  | .app1 .ISZERO x => if isBoolT x then x else .app1 .ISZERO a
+  | .app2 .LT z x => if isC z 0 then .app1 .ISZERO x else .app1 .ISZERO a
+  | .app2 .XOR x y => comm .EQ x y
+  | .app2 .SUB x y => comm .EQ x y
+  | a => .app1 .ISZERO a
+
+theorem izRule_eval (a : Term) (σ : State) (stk : List UInt256) :
+    (izRule a).eval σ stk = isZero (a.eval σ stk) := by
+  unfold izRule
+  split
+  · next x =>
+    split
+    · next h =>
+      simp only [Term.eval, ArithOp.eval]
+      exact (isZero_isZero_of_bool (isBoolT_eval σ stk h)).symm
+    · rfl
+  · next z x =>
+    split
+    · next h => simp only [Term.eval, ArithOp.eval]; rw [isZero_lt_zero_left (isC_eval σ stk h)]
+    · rfl
+  · next x y =>
+    rw [comm_eval (o := .EQ) (fun x y => eq_comm' x y)]
+    simp only [Term.eval, ArithOp.eval]; rw [isZero_xor]
+  · next x y =>
+    rw [comm_eval (o := .EQ) (fun x y => eq_comm' x y)]
+    simp only [Term.eval, ArithOp.eval]; rw [isZero_sub]
+  · rfl
+
 def simp1 (o : ArithOp) (a : Term) : Term :=
   match a with
   | .const c => .const (o.eval [c])
   | a => match o, a with
-    | .ISZERO, .app1 .ISZERO (.app1 .ISZERO x) => .app1 .ISZERO x
+    | .ISZERO, a => izRule a
     | .NOT, .app1 .NOT x => x
     | o, a => .app1 o a
 
@@ -75,9 +122,27 @@ theorem simp1_eval (o : ArithOp) (a : Term) (σ : State) (stk : List UInt256) :
   split
   · rfl
   · split
-    · simp only [Term.eval, ArithOp.eval]; rw [isZero_isZero_isZero]
+    · exact izRule_eval _ σ stk
     · simp only [Term.eval, ArithOp.eval]; rw [lnot_lnot]
     · rfl
+
+/-- `t = SHL(y, 1)`: the `y`. -/
+def shlOne? (t : Term) : Option Term :=
+  match t with
+  | .app2 .SHL y one => if isC one 1 then some y else none
+  | _ => none
+
+theorem shlOne_eval {t y : Term} (h : shlOne? t = some y) (σ : State) (stk : List UInt256) :
+    ∃ one : UInt256, one.toNat = 1 ∧ t.eval σ stk = shiftLeft one (y.eval σ stk) := by
+  unfold shlOne? at h
+  split at h
+  · next y' one =>
+    split at h
+    · next h1 =>
+      simp only [Option.some.injEq] at h; subst h
+      exact ⟨_, isC_eval σ stk h1, rfl⟩
+    · contradiction
+  · contradiction
 
 section rules
 variable (σ : State) (stk : List UInt256)
@@ -102,7 +167,10 @@ theorem rSUB_eval (a b : Term) : (rSUB a b).eval σ stk = a.eval σ stk - b.eval
 
 def rMUL (a b : Term) : Term :=
   if isC a 0 || isC b 0 then c0 else if isC a 1 then b else if isC b 1 then a
-  else comm .MUL a b
+  else match shlOne? b, shlOne? a with
+    | some y, _ => .app2 .SHL y a
+    | none, some y => .app2 .SHL y b
+    | none, none => comm .MUL a b
 theorem rMUL_eval (a b : Term) : (rMUL a b).eval σ stk = a.eval σ stk * b.eval σ stk := by
   unfold rMUL
   split
@@ -115,14 +183,33 @@ theorem rMUL_eval (a b : Term) : (rMUL a b).eval σ stk = a.eval σ stk * b.eval
   · next h => rw [mul_comm', mul_one_of (isC_eval σ stk h)]
   split
   · next h => rw [mul_one_of (isC_eval σ stk h)]
-  exact comm_eval (o := .MUL) (fun x y => mul_comm' x y) a b σ stk
+  cases hb : shlOne? b with
+  | some y =>
+    obtain ⟨one, h1, he⟩ := shlOne_eval hb σ stk
+    show shiftLeft (a.eval σ stk) (y.eval σ stk) = a.eval σ stk * b.eval σ stk
+    rw [he, mul_shl_one h1]
+  | none =>
+  cases ha : shlOne? a with
+  | some y =>
+    obtain ⟨one, h1, he⟩ := shlOne_eval ha σ stk
+    show shiftLeft (b.eval σ stk) (y.eval σ stk) = a.eval σ stk * b.eval σ stk
+    rw [he, mul_comm', mul_shl_one h1]
+  | none => exact comm_eval (o := .MUL) (fun x y => mul_comm' x y) a b σ stk
 
-def rDIV (a b : Term) : Term := if isC b 1 then a else .app2 .DIV a b
+def rDIV (a b : Term) : Term :=
+  if isC b 1 then a else match shlOne? b with
+    | some y => .app2 .SHR y a
+    | none => .app2 .DIV a b
 theorem rDIV_eval (a b : Term) : (rDIV a b).eval σ stk = a.eval σ stk / b.eval σ stk := by
   unfold rDIV
   split
   · next h => rw [div_one_of (isC_eval σ stk h)]
-  rfl
+  cases hb : shlOne? b with
+  | some y =>
+    obtain ⟨one, h1, he⟩ := shlOne_eval hb σ stk
+    show shiftRight (a.eval σ stk) (y.eval σ stk) = a.eval σ stk / b.eval σ stk
+    rw [he, div_shl_one h1]
+  | none => rfl
 
 def rMOD (a b : Term) : Term :=
   if isC b 0 || isC b 1 || a = b then c0 else .app2 .MOD a b
@@ -251,7 +338,8 @@ theorem rXOR_eval (a b : Term) : (rXOR a b).eval σ stk = xor (a.eval σ stk) (b
   exact comm_eval (o := .XOR) (fun x y => xor_comm' x y) a b σ stk
 
 def rEQ (iz : Term → Term) (a b : Term) : Term :=
-  if a = b then c1 else if isC a 0 then iz b else if isC b 0 then iz a else comm .EQ a b
+  if a = b then c1 else if isC a 0 then iz b else if isC b 0 then iz a
+  else if isC a 1 && isBoolT b then b else if isC b 1 && isBoolT a then a else comm .EQ a b
 theorem rEQ_eval (iz : Term → Term) (hiz : ∀ t, (iz t).eval σ stk = isZero (t.eval σ stk))
     (a b : Term) : (rEQ iz a b).eval σ stk = UInt256.eq (a.eval σ stk) (b.eval σ stk) := by
   unfold rEQ
@@ -261,6 +349,14 @@ theorem rEQ_eval (iz : Term → Term) (hiz : ∀ t, (iz t).eval σ stk = isZero 
   · next h => rw [hiz, eq_zero_left (isC_eval σ stk h)]
   split
   · next h => rw [hiz, eq_comm', eq_zero_left (isC_eval σ stk h)]
+  split
+  · next h =>
+    simp only [Bool.and_eq_true] at h
+    exact (eq_one_of_bool (isC_eval σ stk h.1) (isBoolT_eval σ stk h.2)).symm
+  split
+  · next h =>
+    simp only [Bool.and_eq_true] at h
+    rw [eq_comm']; exact (eq_one_of_bool (isC_eval σ stk h.1) (isBoolT_eval σ stk h.2)).symm
   exact comm_eval (o := .EQ) (fun x y => eq_comm' x y) a b σ stk
 
 def rSHL (a b : Term) : Term := if isC a 0 then b else if isC b 0 then c0 else .app2 .SHL a b

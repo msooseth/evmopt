@@ -243,4 +243,93 @@ theorem land_mask_of_lt {a b : UInt256} (ha : a.toNat < 2 ^ 160) (hb : b.toNat =
   apply ext_toNat
   rw [toNat_land_exact, hb, Nat.and_two_pow_sub_one_eq_mod, Nat.mod_eq_of_lt ha]
 
+theorem nat_xor_eq_zero {x y : Nat} (h : x ^^^ y = 0) : x = y := by
+  apply Nat.eq_of_testBit_eq; intro i
+  have := congrArg (Nat.testBit · i) h
+  simp only [Nat.testBit_xor, Nat.zero_testBit] at this
+  cases hx : x.testBit i <;> cases hy : y.testBit i <;> simp_all
+
+theorem isZero_xor (x y : UInt256) : isZero (xor x y) = eq x y := by
+  unfold isZero eq
+  rw [toNat_xor_exact]
+  by_cases h : x.toNat = y.toNat
+  · rw [h, Nat.xor_self]; simp
+  · have : x.toNat ^^^ y.toNat ≠ 0 := fun h' => h (nat_xor_eq_zero h')
+    simp [this, h]
+
+theorem isZero_sub (x y : UInt256) : isZero (x - y) = eq x y := by
+  unfold isZero eq
+  rw [toNat_sub']
+  have hx := toNat_lt x; have hy := toNat_lt y
+  by_cases h : y.toNat ≤ x.toNat
+  · rw [show size - y.toNat + x.toNat = (x.toNat - y.toNat) + size by omega, Nat.add_mod_right,
+      Nat.mod_eq_of_lt (by omega)]
+    by_cases h' : x.toNat = y.toNat <;> simp [h'] <;> omega
+  · rw [Nat.mod_eq_of_lt (by omega)]
+    have : x.toNat ≠ y.toNat := by omega
+    simp [this]; omega
+
+/-- Results of comparisons are 0 or 1. -/
+def IsBool (a : UInt256) : Prop := a.toNat ≤ 1
+
+theorem isBool_ofNat01 (c : Prop) [Decidable c] : IsBool (if c then ofNat 1 else ofNat 0) := by
+  unfold IsBool; split <;> simp
+
+theorem isZero_isZero_of_bool {a : UInt256} (h : IsBool a) : isZero (isZero a) = a := by
+  unfold IsBool at h
+  apply ext_toNat
+  unfold isZero
+  by_cases h0 : a.toNat = 0 <;> simp [h0] <;> omega
+
+theorem eq_one_of_bool {a b : UInt256} (ha : a.toNat = 1) (hb : IsBool b) : eq a b = b := by
+  unfold IsBool at hb
+  apply ext_toNat
+  unfold eq
+  rw [ha]
+  by_cases h1 : 1 = b.toNat
+  · rw [if_pos h1]; exact (toNat_ofNat_one).trans h1
+  · rw [if_neg h1, toNat_ofNat_zero]; omega
+
+theorem isZero_lt_zero_left {z x : UInt256} (h : z.toNat = 0) : isZero (lt z x) = isZero x := by
+  unfold isZero lt
+  rw [h]
+  by_cases hx : x.toNat = 0
+  · simp [hx]
+  · have : 0 < x.toNat := by omega
+    simp [this, hx]
+
+theorem mul_shl_one {x y one : UInt256} (h : one.toNat = 1) :
+    x * shiftLeft one y = shiftLeft x y := by
+  unfold shiftLeft
+  rw [h]
+  split
+  · exact mul_zero_of rfl
+  · next hy =>
+    apply ext_toNat
+    have hp : 2 ^ y.toNat < size := by
+      rw [size_eq]; exact Nat.pow_lt_pow_right (by decide) (by omega)
+    rw [toNat_mul', toNat_ofNat', toNat_ofNat', Nat.one_shiftLeft, Nat.mod_mod,
+      Nat.mod_eq_of_lt hp, Nat.shiftLeft_eq, Nat.mod_mod]
+
+theorem div_shl_one {x y one : UInt256} (h : one.toNat = 1) :
+    x / shiftLeft one y = shiftRight x y := by
+  have hdiv : ∀ a b : UInt256, a / b = div a b := fun _ _ => rfl
+  rw [hdiv]
+  unfold shiftLeft shiftRight
+  rw [h]
+  split
+  · unfold div; simp
+  · next hy =>
+    have hp : 2 ^ y.toNat < size := by
+      rw [size_eq]; exact Nat.pow_lt_pow_right (by decide) (by omega)
+    unfold div
+    have hv : (ofNat ((1 <<< y.toNat) % size)).val.val = 2 ^ y.toNat := by
+      show (ofNat ((1 <<< y.toNat) % size)).toNat = _
+      rw [toNat_ofNat', Nat.one_shiftLeft, Nat.mod_mod, Nat.mod_eq_of_lt hp]
+    rw [if_neg (by rw [hv]; exact Nat.pos_iff_ne_zero.mp (Nat.two_pow_pos _))]
+    apply ext_toNat
+    show (x.val / (ofNat ((1 <<< y.toNat) % size)).val).val = (x.val >>> y.val).val
+    rw [Fin.div_val, Fin.shiftRight_val, hv, ← Nat.shiftRight_eq_div_pow]
+    rfl
+
 end EvmSemantics.UInt256

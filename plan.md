@@ -85,9 +85,12 @@ gasol's SFS rules (`sfs_generator/gasol_optimization.py`), `X` = any term:
 - [done] `GT(1,X) → ISZ(X)`, `LT(X,1) → ISZ(X)`, `EQ(0,X) → ISZ(X)`
 - [done] `AND(X,AND(X,Y))`, `OR(OR(X,Y),Y)`, `OR(X,AND(X,Y)) → X`, `AND(X,OR(X,Y)) → X`,
   `XOR(X,XOR(X,Y)) → Y` (all argument orders)
-- [todo] remaining gasol type-2 rules: `ISZ(GT(X,0)) → ISZ(X)`, `EQ(1,ISZ(X)) → ISZ(X)`, `ISZ(LT(0,X)) → ISZ(X)`, `ISZ(XOR(X,Y)) → EQ`,
-  `ISZ(SUB(X,Y)) → EQ`, `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`,
-  `MUL(X,SHL(Y,1)) → SHL(Y,X)`, `DIV(X,SHL(Y,1)) → SHR(Y,X)`, `AND(SHL(X,Y),SHL(X,Z))`
+- [done] `ISZ(GT(X,0)) → ISZ(X)` (canonical `ISZ(LT(0,X))`), `ISZ(XOR(X,Y)) → EQ(X,Y)`,
+  `ISZ(SUB(X,Y)) → EQ(X,Y)`, `EQ(1,B) → B` and `ISZ(ISZ(B)) → B` for boolean-valued `B`
+  (subsumes `EQ(1,ISZ(X))`, `ISZ(ISZ(LT/GT/EQ…))`, `ISZ(ISZ(ISZ(X)))`),
+  `MUL(X,SHL(Y,1)) → SHL(Y,X)`, `DIV(X,SHL(Y,1)) → SHR(Y,X)`
+- [todo] `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`, `AND(SHL(X,Y),SHL(X,Z)) → SHL(X,AND(Y,Z))`
+- [todo] `BALANCE(ADDRESS) → SELFBALANCE` (needs BALANCE: dynamic gas)
 - [done] `SHL(0,X) → X`, `SHR(0,X) → X`, `SHL(X,0) → 0`, `SHR(X,0) → 0` (correct versions of
   gasol's buggy rules, see `gasol-bugs.md` 1-2)
 - not taken: gasol's `DIV(X,X) → 1` / `SDIV(X,X) → 1` (unsound, `gasol-bugs.md` 3)

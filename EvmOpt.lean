@@ -11,5 +11,6 @@ import EvmOpt.Check
 import EvmOpt.Peephole
 import EvmOpt.Rules
 import EvmOpt.Search
+import EvmOpt.XOpt
 import EvmOpt.Asm
 import EvmOpt.SolcAsm

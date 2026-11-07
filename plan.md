@@ -123,7 +123,11 @@ Stack-local windows proposing candidates for the checker:
 - [done] corpus stats (`evmopt --fork london stats`, 30 contracts, 26580 blocks): stack-op
   gas 289351 -> 285653 (-1.3%), bytes 163397 -> 162467 (-0.6%). Small because barriers
   (memory/storage/env ops, `PUSH [tag]`) cut blocks into short runs; see stage 7.
-- [todo] Run gasol on `examples/jsons-solc` and compare at scale with `gasolcmp`.
+- [done] gasol on `examples/jsons-solc` (`-solver z3`) vs `gasolcmp` (28 contracts):
+  stack-only blocks original 43328 gas, gasol (validated rewrites only) 41975, ours 41518;
+  ours better on 33 blocks, gasol on 16 (long blocks needing CSE + reordering). gasol's
+  stack-only rewrites: 1003 validate, 111 exceed the original stack peak (`gasol-bugs.md` H).
+- [todo] Check gasol's 8562 blocks with memory/storage ops (needs stage 7 effect ops).
 
 ### 7. SSA lift / rewrite / lower (block level) [wip]
 - [done] Lowering by goal-directed search (`Search.lean`): Dijkstra on gas over normalised
@@ -138,7 +142,9 @@ Stack-local windows proposing candidates for the checker:
 - [todo] `PUSH [tag]` as opaque constants.
 - [todo] SLOAD/MLOAD/KECCAK/MSTORE/SSTORE with effect ordering (dynamic gas: needs cost
   model per access).
-- [todo] Greedy scheduler for blocks beyond the search budget (port gasol's greedy).
+- [done] `dupZero`: DUP of a known-zero item → PUSH0 (checked candidate).
+- [todo] Greedy scheduler with CSE for blocks beyond the search budget (port gasol's
+  greedy); closes the remaining gasol wins.
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.
 
 ### 8. SSA-CFG (whole function) [todo]

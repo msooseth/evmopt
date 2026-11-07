@@ -85,23 +85,51 @@ def search (f : Fork) (b : Block) (cfg : SearchCfg := {}) : Option Block := Id.r
         frontier := frontier.insert g' ((T', i :: prog, sz') :: (frontier.getD g' []))
   return none
 
-/-- Peephole, then search on the result; the search output must pass `check`. -/
+/-- DUP of an item known to be 0 becomes PUSH0 (2 gas instead of 3). -/
+def dupZero (f : Fork) (b : Block) : Block := Id.run do
+  if !push0Ok f then return b
+  let mut S := SState.init
+  let mut out : Array Instr := #[]
+  for i in b do
+    let i' := match i with
+      | .dup n =>
+        match (ensure i.need S).ts[n.val]? with
+        | some t => if norm t == .const ⟨0⟩ || norm t == .const (UInt256.ofNat 0) then .push [] else i
+        | none => i
+      | _ => i
+    out := out.push i'
+    S := normState (sstep i S)
+  return out.toList
+
+/-- Keep candidate `c` for `b` only if `check` accepts it. -/
+def tryCand (f : Fork) (b c : Block) : Block := if check f b c then c else b
+
+theorem tryCand_sound (f : Fork) (σ : State) (b c : Block) {stk r : List UInt256}
+    (hl : stk.length ≤ 1024) (h : run f σ b stk = some r) :
+    run f σ (tryCand f b c) stk = some r ∧ cost f (tryCand f b c) ≤ cost f b := by
+  unfold tryCand
+  split
+  · next hc => exact check_sound hc hl h
+  · exact ⟨h, Nat.le_refl _⟩
+
+/-- Peephole, DUP-of-zero, then search; every step after the peephole is checked. -/
 def optimizeBlock (f : Fork) (b : Block) : Block :=
-  let p := peephole f b
+  let p := tryCand f (peephole f b) (dupZero f (peephole f b))
   match search f p with
-  | some c => if check f p c then c else p
+  | some c => tryCand f p c
   | none => p
 
 theorem optimizeBlock_sound (f : Fork) (σ : State) (b : Block) {stk r : List UInt256}
     (hl : stk.length ≤ 1024) (h : run f σ b stk = some r) :
     run f σ (optimizeBlock f b) stk = some r ∧ cost f (optimizeBlock f b) ≤ cost f b := by
   obtain ⟨h1, h2⟩ := peephole_sound f σ b hl h
+  obtain ⟨h3, h4⟩ := tryCand_sound f σ _ (dupZero f (peephole f b)) hl h1
   unfold optimizeBlock
   dsimp only
   split
-  · split
-    · next hc => obtain ⟨h3, h4⟩ := check_sound hc hl h1; exact ⟨h3, by omega⟩
-    · exact ⟨h1, h2⟩
-  · exact ⟨h1, h2⟩
+  · next c _ =>
+    obtain ⟨h5, h6⟩ := tryCand_sound f σ _ c hl h3
+    exact ⟨h5, by omega⟩
+  · exact ⟨h3, by omega⟩
 
 end EvmOpt

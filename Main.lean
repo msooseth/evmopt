@@ -51,6 +51,8 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
   let cg := contractCodes jg
   let mut nSame := 0; let mut nOk := 0; let mut nRej := 0; let mut nBug := 0
   let mut nMixed := 0; let mut nMis := 0; let mut gasBefore := 0; let mut gasAfter := 0
+  let mut gOrig := 0; let mut gGasol := 0; let mut gOurs := 0
+  let mut oursBetter := 0; let mut gasolBetter := 0
   for (name, codesO) in co do
     let some codesG := cg.lookup name | continue
     for (ao, ag) in codesO.zip codesG do
@@ -63,6 +65,15 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
       for (xo, xg) in bo.zip bg do
         match stackOnly (body xo), stackOnly (body xg) with
         | some b, some b' =>
+          let ours := optimizeBlock f b
+          let gasolOk := b == b' || check f b b'
+          let cg := if gasolOk then cost f b' else cost f b
+          gOrig := gOrig + cost f b; gGasol := gGasol + cg; gOurs := gOurs + cost f ours
+          if cost f ours < cg then oursBetter := oursBetter + 1
+          else if cg < cost f ours then
+            gasolBetter := gasolBetter + 1
+            if verbose then
+              IO.println s!"[gasol better] {showBlock b}\n  gasol: {showBlock b'}\n  ours:  {showBlock ours}"
           if b == b' then nSame := nSame + 1
           else if check f b b' then
             nOk := nOk + 1; gasBefore := gasBefore + cost f b; gasAfter := gasAfter + cost f b'
@@ -81,6 +92,8 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
   IO.println s!"blocks: unchanged {nSame}, validated {nOk} (gas {gasBefore} -> {gasAfter}), \
     rejected {nRej} (with concrete counterexample: {nBug}), non-stack {nMixed}, \
     code-level block-count mismatches {nMis}"
+  IO.println s!"stack-only blocks gas: original {gOrig}, gasol (validated only) {gGasol}, \
+    ours {gOurs}; ours better on {oursBetter}, gasol better on {gasolBetter}"
 
 /-- Our peephole optimizer over every block of a solc asm json. -/
 def statsJson (f : Fork) (path : String) : IO Unit := do

@@ -22,6 +22,16 @@ C. **ADD result not reduced mod 2^256.** `PUSH1 0x1 PUSH32 0xff…ff ADD` → `P
 D. **SMOD folded as unsigned MOD.** `PUSH1 0x3 PUSH32 0xff…ff SMOD` → `PUSH0`; correct is
    `SMOD(-1,3) = -1` = `0xff…ff`. See 4.
 
+H. **Stack limit not modelled: output needs a higher stack peak.** Corpus run
+   (`examples/jsons-solc`, 24 contracts, `-solver z3`, compared with `evmopt --fork cancun
+   gasolcmp`): of 1114 changed stack-only blocks, 1003 validate and 111 are rejected only
+   because gasol's block needs more stack room, e.g.
+   `PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB DUP4 AND` (peak +3) →
+   `DUP3 PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB AND` (peak +4). From a 1021-item stack the
+   original runs and gasol's code overflows (exceptional halt). Corner case, but a real
+   semantic change. No other wrong code found among stack-only blocks; 8562 blocks with
+   memory/storage/env ops are not checkable yet.
+
 ## Crashes (no output; block left unoptimised)
 
 E. `DUP1 NOT NOT` → `Exception: ('Error in RBR generation', 4)` (cf. 7).

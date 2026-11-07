@@ -92,3 +92,8 @@ def sopt (s : String) (f : Fork := .Cancun) : String :=
 #guard !ok "CALLVALUE PUSH20 0xffffffffffffffffffffffffffffffffffffffff AND" "CALLVALUE"
 #guard sopt "CALLER CALLER EQ" = "PUSH1 0x01"
 #guard sopt "PUSH0 CALLDATALOAD DUP1 POP" = "PUSH0 CALLDATALOAD"
+
+-- DUP of a known zero becomes PUSH0 (gasol corpus pattern)
+#guard sopt "PUSH0 DUP1 PUSH1 0x40 DUP4 DUP6 SUB SLT ISZERO" = "PUSH0 PUSH0 PUSH1 0x40 DUP4 DUP6 SUB SLT ISZERO"
+#guard sopt "PUSH0 DUP1 PUSH0 DUP1 PUSH1 0x80 DUP6 DUP8 SUB SLT ISZERO" = "PUSH0 PUSH0 PUSH0 PUSH0 PUSH1 0x80 DUP6 DUP8 SUB SLT ISZERO"
+#guard sopt "PUSH1 0x00 DUP1" (f := .Berlin) = "PUSH1 0x00 DUP1"

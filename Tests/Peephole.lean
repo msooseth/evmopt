@@ -100,5 +100,5 @@ def sopt (s : String) (f : Fork := .Cancun) : String :=
 -- greedy scheduler with CSE and solc-style constant recipes (gasol corpus block)
 #guard sopt "DUP2 PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB AND DUP4 PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB AND EQ"
   = "PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB DUP1 DUP5 AND SWAP1 DUP4 AND EQ"
--- equal gas but much bigger: rejected
-#guard sopt "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB" = "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB"
+-- the mask stays a short recipe (folding to PUSH20 would add 13 bytes); DUP1 saves a byte
+#guard sopt "PUSH1 0x01 PUSH1 0x01 PUSH1 0xa0 SHL SUB" = "PUSH1 0x01 DUP1 PUSH1 0xa0 SHL SUB"

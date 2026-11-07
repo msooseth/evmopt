@@ -24,48 +24,63 @@ and proven correct against powdr-labs' `evm-semantics` (`evm-semantics/`).
 
 ## Stages
 
-Each stage ends with a commit; `lake build` must be clean (no `sorry`, no warnings).
+Everything is written in Lean. Each stage ends with a commit; `lake build` must be clean
+(no `sorry`, no warnings).
 
 ### 0. Project setup
 Lake project `EvmOpt` requiring `evm-semantics` (local path). Builds clean.
 
-### 1. Stack-only interpretation
+### 1. Stack-level block semantics
 - `Block := List Instr` over PUSH0–PUSH32, DUPn, SWAPn, POP and pure stack→stack
   arithmetic/comparison/bitwise ops (ADD … SAR, no memory/storage/env).
 - `run : Block → List UInt256 → Option (List UInt256)` (none on underflow),
   `cost : Fork → Block → Nat`, `size : Block → Nat`, `peak : Block → List UInt256 → Nat`.
-- **Theorem `run_sound`:** if `s.halt = .Running`, the code at `s.pc` decodes to `B`, the
+- `encode : Block → List UInt8` and a decode lemma: code bytes at `pc` = `encode B` ⇒
+  `decodeAt` yields `B`'s ops in order (pc is a `UInt256`; PUSHk advances it by `k+1`).
+- **Theorem `run_sound`:** if `s.halt = .Running`, the code at `s.pc` is `encode B`, the
   ops are available in `s.fork`, `cost B ≤ s.gasAvailable`, peak stack ≤ 1024 and
   `run B s.stack = some stk'`, then
   `Steps s { s with stack := stk', pc := s.pc + size B, gasAvailable := … - cost B }`.
 - Differential test: `run` vs. iterated `stepF` on random blocks/stacks.
 
-### 2. SFS and the proven checker
-- `Term := input (i : Nat) | const (v : UInt256) | app (op) (args : List Term)`;
-  `sfs : Block → Option (List Term × Nat)` (output terms, input depth consumed).
-- **Theorem `sfs_sound`:** `sfs B = some (ts, d)` ⇒ `run B stk` = `ts` evaluated over `stk`
-  (for `stk.length ≥ d`).
-- `normalize : Term → Term` (sort commutative args, fold constants) with
-  `eval (normalize t) = eval t`.
-- `check : Fork → Block → Block → Bool` compares normalised SFS, input depth, cost and peak.
-- **Theorem `check_sound`:** `check f B B' = true` ⇒ the guarantee above, stated on `Steps`.
+### 2. Peephole rewrites on stack code
+Local rules on `Instr` windows, each a theorem about `run`/`cost`/`peak`
+(`SWAPn SWAPn → ε`, `DUPn POP → ε`, `PUSH a PUSH b ADD → PUSH (a+b)`, `PUSH 0 ADD → ε`,
+`ISZERO ISZERO ISZERO → ISZERO`, …). Arithmetic facts via a `UInt256 ≃ BitVec 256` bridge
+and `bv_decide`. Composed with `run_sound` this gives the end-to-end guarantee for any
+sequence of rule applications. First user-visible optimizer.
 
-### 3. Rewrite rules
-Algebraic simplifications (`x+0`, `x*1`, `NOT NOT x`, `ISZERO ISZERO ISZERO x`, …) as
-`Term` rewrites, each proved with `eval` preservation; arithmetic facts via a
-`UInt256 ≃ BitVec 256` bridge and `bv_decide`.
+### 3. Lift to SSA (block level)
+- SSA block: inputs `%0 … %d-1`, a list of `let %v := op(args)` (args are inputs, earlier
+  values or constants), and an output stack of values. Equivalent to gasol's SFS but with
+  explicit sharing.
+- `lift : Block → Option SSA` with **theorem `lift_sound`:** `eval (lift B) stk = run B stk`.
 
-### 4. Search (untrusted)
-Port gasol's greedy block generator: given normalised SFS, produce a stack-op sequence.
-Optional later: SMT oracle (OptiMathSAT/Z3) via subprocess for optimal sequences. Every
-candidate goes through `check`; on failure keep the original block.
+### 4. Rewrite in SSA
+Constant folding, algebraic simplification, CSE, dead-value elimination, commutative
+normalisation; each pass proven to preserve `eval`.
 
-### 5. Frontend and benchmarks
-- Parse gasol's plain block format (`gasol-optimizer/examples/blocks`), then solc
-  `--combined-json asm`; split into blocks; emit the optimised asm.
+### 5. Lower back to stack code (untrusted) + translation validation
+- Stack scheduler from SSA to `Block` (port gasol's greedy generator; optimal search or an
+  SMT oracle later). Unproven.
+- Validator: `check B B' := lift B' ≡ opt (lift B)` (syntactic after normalisation) plus
+  `cost`/`peak` comparison. **Theorem `check_sound`** follows from `lift_sound` and the
+  pass proofs, so only lift, the SSA passes and the validator are trusted. On failure keep
+  the original block.
+
+### 6. SSA-CFG (whole function)
+- Lift a contract to a CFG of SSA blocks with block arguments (stack layout at block
+  entry), resolving jump targets: constant tags first, then pushed return-address tags
+  (legacy codegen) via a small tag-propagation analysis; unresolved dynamic jumps keep
+  their region unoptimised.
+- Cross-block rewrites; lowering must agree on each edge's stack layout.
+- Simulation theorem across blocks on `Steps`.
+
+### 7. Frontend and benchmarks
+- Parse gasol's plain block format (`gasol-optimizer/examples/blocks`) early (needed from
+  stage 2 for testing), then solc `--combined-json asm`; emit optimised asm.
 - Benchmark gas/size against gasol on `gasol-optimizer/examples/`.
 
 ### Later
-Memory/storage/keccak as uninterpreted ops with dependency ordering (gasol's
-`store_uninterpreted`), dynamic memory-expansion gas, size criterion, whole-contract
-theorem including relocation.
+Memory/storage/keccak as SSA ops with effect ordering, dynamic memory-expansion gas, size
+criterion, relocation-correctness of the assembler.

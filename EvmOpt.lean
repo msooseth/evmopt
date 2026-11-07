@@ -8,5 +8,6 @@ import EvmOpt.Norm
 import EvmOpt.Check
 import EvmOpt.Peephole
 import EvmOpt.Rules
+import EvmOpt.Search
 import EvmOpt.Asm
 import EvmOpt.SolcAsm

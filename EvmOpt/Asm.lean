@@ -1,4 +1,4 @@
-import EvmOpt.Rules
+import EvmOpt.Search
 
 namespace EvmOpt
 open EvmSemantics EvmSemantics.EVM
@@ -107,7 +107,7 @@ def runs : List Item → List (Sum Block String)
 
 def optimizeItems (f : Fork) (items : List Item) : List Item :=
   (runs items).flatMap fun
-    | .inl b => (peephole f b).map .ins
+    | .inl b => (optimizeBlock f b).map .ins
     | .inr s => [.other s]
 
 def itemsCost (f : Fork) (items : List Item) : Nat :=

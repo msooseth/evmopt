@@ -10,7 +10,7 @@ inductive Term
   | app1 (o : ArithOp) (a : Term)
   | app2 (o : ArithOp) (a b : Term)
   | app3 (o : ArithOp) (a b c : Term)
-  deriving DecidableEq, Repr, Inhabited, Ord
+  deriving DecidableEq, Repr, Inhabited, Ord, Hashable
 
 namespace Term
 

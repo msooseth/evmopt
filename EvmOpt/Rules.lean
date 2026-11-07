@@ -63,7 +63,7 @@ def selfResult (o : ArithOp) : Option (Option Nat) :=
   | .EQ => some (some 1)
   | _ => none
 
-def rule (f : Fork) (b : Block) : Option (Nat × Block) :=
+def ruleRaw (f : Fork) (b : Block) : Option (Nat × Block) :=
   match b with
   | .swap n :: .swap m :: _ => if n = m then some (2, []) else none
   | .dup _ :: .pop :: _ => some (2, [])
@@ -103,11 +103,26 @@ def rule (f : Fork) (b : Block) : Option (Nat × Block) :=
       else if o = .GT && a.toNat == 1 then some (2, [.op .ISZERO])
       else none
     | none => none
+  | _ => none
+
+def pushMin (f : Fork) (b : Block) : Option (Nat × Block) :=
+  match b with
   | .push bs :: _ =>
     match pushedVal (.push bs) with
     | some v => let p := pushOf f v; if p ≠ .push bs then some (1, [p]) else none
     | none => none
   | _ => none
+
+def blockSize (b : Block) : Nat := (encode b).length
+
+/-- At most one extra byte per 3 gas saved: solc uses e.g. `PUSH 0 NOT` deliberately for
+    size, and folding it into a PUSH32 would cost far more in deployment than it saves. -/
+def sizeOk (f : Fork) (old new : Block) : Bool :=
+  blockSize new ≤ blockSize old + (cost f old - cost f new) / 3
+
+def rule (f : Fork) (b : Block) : Option (Nat × Block) :=
+  let ok := fun (kw : Nat × Block) => sizeOk f (b.take kw.1) kw.2
+  ((ruleRaw f b).filter ok).orElse fun _ => (pushMin f b).filter ok
 
 def peephole (f : Fork) (b : Block) : Block := passes f rule (2 * b.length + 2) b
 

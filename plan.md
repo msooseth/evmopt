@@ -118,14 +118,22 @@ Stack-local windows proposing candidates for the checker:
   its output with `evmopt check` + concrete counterexample search; targeted blocks in
   `Tests/gasol_bug_blocks.txt`; 4 wrong-code bugs and 3 crashes confirmed (`gasol-bugs.md`).
 - [done] `evmopt stats` over solc asm json; `evmopt gasolcmp` block-pairs two asm jsons.
-- [todo] size guard: constant folding currently grows code (solc's `PUSH 0 NOT`-style
-  size tricks get expanded); add a size/gas policy.
+- [done] size policy `sizeOk`: at most one extra byte per 3 gas saved (stops folding solc's
+  `PUSH 0 NOT`-style size tricks into PUSH32s).
+- [done] corpus stats (`evmopt --fork london stats`, 30 contracts, 26580 blocks): stack-op
+  gas 289351 -> 285653 (-1.3%), bytes 163397 -> 162467 (-0.6%). Small because barriers
+  (memory/storage/env ops, `PUSH [tag]`) cut blocks into short runs; see stage 7.
 - [todo] Run gasol on `examples/jsons-solc` and compare at scale with `gasolcmp`.
 
-### 7. SSA lift / rewrite / lower (block level) [todo]
+### 7. SSA lift / rewrite / lower (block level) [wip]
+- [done] Lowering by goal-directed search (`Search.lean`): Dijkstra on gas over normalised
+  symbolic states; moves restricted to DUP/SWAP within the original depth, POP, target
+  constants, ops producing target subterms. Validated by `check`; `optimizeBlock_sound`.
+  Finds gasol's `redundant_swap` optimum `DUP2 SWAP5` in 60 ms.
+- [todo] Uninterpreted ops in `Term` (env reads, SLOAD/MLOAD/KECCAK with effect order,
+  `PUSH [tag]` as opaque constants) so blocks span full basic blocks.
+- [todo] Greedy scheduler for blocks beyond the search budget (port gasol's greedy).
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.
-- [todo] Stack scheduler from SSA to `Block` (port gasol's greedy generator); validated by
-  the checker.
 
 ### 8. SSA-CFG (whole function) [todo]
 - [todo] CFG of SSA blocks with block arguments; jump-target resolution (constant tags,

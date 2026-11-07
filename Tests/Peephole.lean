@@ -19,7 +19,8 @@ def ok (a b : String) (f : Fork := .Cancun) : Bool := check f (blk a) (blk b)
 #guard opt "ADDMOD POP" = "POP POP POP"
 #guard opt "PUSH1 0x05 PUSH1 0x03 ADD" = "PUSH1 0x08"
 #guard opt "PUSH1 0x03 PUSH1 0x05 SUB" = "PUSH1 0x02"
-#guard opt "PUSH1 0x01 PUSH1 0x00 SUB" = "PUSH32 0x" ++ String.join (List.replicate 32 "ff")
+-- folding to a PUSH32 would grow the code: kept
+#guard opt "PUSH1 0x01 PUSH1 0x00 SUB" = "PUSH1 0x01 PUSH0 SUB"
 #guard opt "PUSH1 0x07 PUSH1 0x05 PUSH1 0x03 ADDMOD" = "PUSH1 0x01"
 #guard opt "PUSH1 0x00 ISZERO" = "PUSH1 0x01"
 #guard opt "PUSH0 ADD" = ""
@@ -29,7 +30,8 @@ def ok (a b : String) (f : Fork := .Cancun) : Bool := check f (blk a) (blk b)
 #guard opt "PUSH1 0x01 SWAP1 DIV" = ""
 #guard opt "DUP1 SUB" = "POP PUSH0"
 #guard opt "DUP1 XOR" = "POP PUSH0"
-#guard opt "DUP1 EQ" = "POP PUSH1 0x01"
+-- saves 1 gas for 1 extra byte: rejected by the size policy
+#guard opt "DUP1 EQ" = "DUP1 EQ"
 #guard opt "DUP1 AND" = ""
 #guard opt "SWAP1 ADD" = "ADD"
 #guard opt "SWAP1 LT" = "GT"

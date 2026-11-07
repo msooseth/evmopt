@@ -30,7 +30,7 @@ def segOpt (f : Fork) (b : XBlock) : XBlock :=
     | .inr m => [.mem m]
 
 /-- Greedy lowering that emits the effects in their original order. -/
-def xgreedy (f : Fork) (b : XBlock) : Option XBlock := do
+def xgreedyWith (pre : Bool) (f : Fork) (b : XBlock) : Option XBlock := do
   let X ← xlift f b
   let goal := X.S.ts.map norm
   let effs := X.E.map fun e => (e.1, e.2.map norm)
@@ -40,9 +40,10 @@ def xgreedy (f : Fork) (b : XBlock) : Option XBlock := do
   let demand := (distinct.filter fun t => t.instr.isSome).foldl
     (fun d t => t.args.foldl (fun d a => d.insert a (d.get a + 1)) d) d0
   let init := (List.range X.S.d).map Term.var
+  let (init, pre0) := if pre then preclean init demand else (init, [])
   let (cur, prog, dem, _) ← effs.foldlM (fun (c, pr, dd, k) (m, args) => do
     let (c', p', dd', _) ← args.reverse.foldlM (fun (c, pr, dd, first) a => do
-      let (c', p', dd') ← emit f a c dd first
+      let (c', p', dd') ← emit f a c dd (if first then .first else .later)
       return (c', pr ++ p', dd', false)) (c, [], dd, true)
     let c'' := (if m.pushes then [Term.eff k] else []) ++ c'.drop m.arity
     return (c'', pr ++ p'.map XInstr.base ++ [XInstr.mem m], dd', k + 1)) (init, [], demand, 0)
@@ -51,7 +52,15 @@ def xgreedy (f : Fork) (b : XBlock) : Option XBlock := do
       let (c', p', d') ← emit f t c d
       return (c', pr ++ p', d')) (cur, [], dem)
   let fix ← shuffle cur goal
-  return prog ++ (prog2 ++ fix).map XInstr.base
+  return pre0.map XInstr.base ++ prog ++ (prog2 ++ fix).map XInstr.base
+
+def xgreedy (f : Fork) (b : XBlock) : Option XBlock :=
+  let c1 := (xgreedyWith false f b).filter fun c => xcheck f b c
+  let c2 := (xgreedyWith true f b).filter fun c => xcheck f b c
+  match c1, c2 with
+  | some x, some y => if xscore f y < xscore f x then some y else some x
+  | some x, none => some x
+  | none, y => y
 
 /-- Keep `c` only if `xcheck` accepts it and it scores better (gas + 3·bytes). -/
 def xtry (f : Fork) (b c : XBlock) : XBlock :=

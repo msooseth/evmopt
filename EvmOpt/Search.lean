@@ -110,6 +110,7 @@ def constRecipe (f : Fork) (v : UInt256) : Block := Id.run do
   let p1 (k : Nat) : Instr := pushOf f (UInt256.ofNat k)
   let mut cands : List Block := [[pushOf f v]]
   if n = UInt256.size - 1 then cands := [pushOf f (UInt256.ofNat 0), .op .NOT] :: cands
+  cands := [p1 (UInt256.size - 1 - n), .op .NOT] :: cands
   for k in [8:256:8] do
     if n = 2 ^ k - 1 then
       cands := [p1 1, .dup ⟨0, by decide⟩, p1 k, .op .SHL, .op .SUB] :: cands
@@ -124,9 +125,14 @@ abbrev Demand := Std.HashMap Term Nat
 def Demand.get (d : Demand) (t : Term) : Nat := d.getD t 0
 def Demand.dec (d : Demand) (t : Term) : Demand := d.insert t (d.get t - 1)
 
-/-- Put `t` on top of `cur` (top first). Uses an existing copy in place when it is on top
-    and has no other remaining use; otherwise DUPs it; otherwise computes it. -/
-partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (canSwap : Bool := false) :
+/-- Where an operand is emitted: at top level, as an operation's deepest operand, or as a
+    later operand (directly above the previous one), possibly of a commutative operation. -/
+inductive EMode | top | first | later | laterComm
+  deriving BEq
+
+/-- Put `t` on top of `cur` (top first). Uses an existing copy in place on its last use where
+    possible; otherwise DUPs it; otherwise computes it. -/
+partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (mode : EMode := .top) :
     Option (List Term × List Instr × Demand) :=
   let d := d.dec t
   let lastUse := d.get t == 0 && countIn t cur == 1
@@ -135,8 +141,12 @@ partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (canSwap :
     if lastUse then some (cur, [], d)
     else some (t :: cur, [.dup ⟨0, by decide⟩], d)
   | some p =>
-    if lastUse && canSwap then
+    if lastUse && mode == .first then
       (swapAt p).map fun i => ((cur.exchange 0 p).getD cur, [i], d)
+    -- last use right below the operand just placed: swap it up, or leave it (commutative)
+    else if lastUse && p == 1 && mode == .laterComm then some (cur, [], d)
+    else if lastUse && p == 1 && mode == .later then
+      some ((cur.exchange 0 1).getD cur, [.swap ⟨0, by decide⟩], d)
     else (dupAt p).map fun i => (t :: cur, [i], d)
   | none =>
     -- keep a copy below when more uses remain (CSE)
@@ -149,9 +159,16 @@ partial def emit (f : Fork) (t : Term) (cur : List Term) (d : Demand) (canSwap :
     | .var _ => none
     | _ => do
       let i ← t.instr
-      let (cur', prog, d', _) ← t.args.reverse.foldlM (fun (c, pr, dd, first) a => do
-        let (c', p', dd') ← emit f a c dd first
+      let comm := match t with | .app2 o _ _ => commutative o | _ => false
+      let go := fun (args : List Term) => args.reverse.foldlM (fun (c, pr, dd, first) a => do
+        let m : EMode := if first then .first else if comm then .laterComm else .later
+        let (c', p', dd') ← emit f a c dd m
         return (c', pr ++ p', dd', false)) (cur, [], d, true)
+      let best := match go t.args, (if comm then go t.args.reverse else none) with
+        | some x, some y => if cost f y.2.1 < cost f x.2.1 then some y else some x
+        | some x, none => some x
+        | none, y => y
+      let (cur', prog, d', _) ← best
       return keep (t :: cur'.drop t.args.length) (prog ++ [i]) d'
 
 /-- Rearrange `cur` into exactly `goal` (both top first, over the same untouched rest). -/
@@ -189,8 +206,36 @@ partial def shuffle (cur goal : List Term) (fuel : Nat := 200) : Option (List In
     return i :: rest
   | none => none
 
+/-- Drop stack items with no remaining use before computing (`POP`, or `SWAPk POP`). -/
+partial def preclean (cur : List Term) (d : Demand) (fuel : Nat := 64) : List Term × List Instr :=
+  if fuel = 0 then (cur, []) else
+  match cur with
+  | t :: rest =>
+    if d.get t == 0 then
+      let (c, p) := preclean rest d (fuel - 1); (c, .pop :: p)
+    else
+    -- a run of j ≥ 2 dead items right below the top: SWAPj then j POPs
+    let j := (rest.takeWhile fun u => d.get u == 0).length
+    if 2 ≤ j ∧ j ≤ 16 then
+      match swapAt j with
+      | some i =>
+        let (c, p) := preclean (t :: rest.drop j) d (fuel - 1)
+        (c, i :: List.replicate j .pop ++ p)
+      | none => (cur, [])
+    else
+      let dead := fun (q : Nat) => decide (0 < q) && (cur[q]?.any fun u => d.get u == 0)
+      match (List.range (min 17 cur.length)).find? dead with
+      | some q =>
+        match swapAt q with
+        | some i =>
+          let c := ((cur.exchange 0 q).getD cur).tail
+          let (c', p) := preclean c d (fuel - 1); (c', i :: .pop :: p)
+        | none => (cur, [])
+      | none => (cur, [])
+  | [] => ([], [])
+
 /-- Greedy lowering of the block's normalised SFS. -/
-def greedy (f : Fork) (b : Block) : Option Block := do
+def greedyWith (pre : Bool) (f : Fork) (b : Block) : Option Block := do
   let S ← lift f b
   let goal := S.ts.map norm
   let init := (List.range S.d).map Term.var
@@ -198,13 +243,22 @@ def greedy (f : Fork) (b : Block) : Option Block := do
   let d0 : Demand := goal.foldl (fun d t => d.insert t (d.get t + 1)) {}
   let demand := (distinct.filter fun t => t.instr.isSome).foldl
     (fun d t => t.args.foldl (fun d a => d.insert a (d.get a + 1)) d) d0
+  let (init, pre0) := if pre then preclean init demand else (init, [])
   -- goal terms deepest first, so the shuffle mostly has to drop garbage
   let (cur, prog, _) ← goal.reverse.foldlM (fun (c, pr, d) t =>
     if c.contains t then some (c, pr, d) else do
       let (c', p', d') ← emit f t c d
       return (c', pr ++ p', d')) (init, [], demand)
   let fix ← shuffle cur goal
-  return prog ++ fix
+  return pre0 ++ prog ++ fix
+
+def greedy (f : Fork) (b : Block) : Option Block :=
+  let c1 := (greedyWith false f b).filter fun c => check f b c
+  let c2 := (greedyWith true f b).filter fun c => check f b c
+  match c1, c2 with
+  | some x, some y => if score f y < score f x then some y else some x
+  | some x, none => some x
+  | none, y => y
 
 /-- DUP of an item known to be 0 becomes PUSH0 (2 gas instead of 3). -/
 def dupZero (f : Fork) (b : Block) : Block := Id.run do

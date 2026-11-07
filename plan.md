@@ -130,7 +130,11 @@ Stack-local windows proposing candidates for the checker:
   stack-only blocks original 43328 gas, gasol (validated rewrites only) 41975, ours 41518;
   ours better on 33 blocks, gasol on 16 (long blocks needing CSE + reordering). gasol's
   stack-only rewrites: 1003 validate, 111 exceed the original stack peak (`gasol-bugs.md` H).
-- [todo] Check gasol's 8562 blocks with memory/storage ops (needs stage 7 effect ops).
+- [done] Speed and totals (30 contracts, one core): gasol median 486 s/contract (13345 s
+  for 28), ours ~5 s/contract (161 s for 30). Stack-only blocks: original 43328, gasol 41975,
+  ours 41630. Whole contract: gasol saves 15725 gas, ours 7333; the gap is the 10160 blocks
+  with memory/storage/KECCAK/`PUSH [tag]` that we treat as barriers (stage 8).
+- [todo] Check gasol's blocks with memory/storage ops (needs stage 8).
 
 ### 7. SSA lift / rewrite / lower (block level) [wip]
 - [done] Lowering by goal-directed search (`Search.lean`): Dijkstra on gas over normalised
@@ -143,8 +147,6 @@ Stack-local windows proposing candidates for the checker:
   CODESIZE excluded: it observes the rewritten code). Corpus: stack-op gas -2.1%.
 - [done] `AND(CALLER|ORIGIN|ADDRESS|COINBASE, 2^160-1) → X` (gasol type-2).
 - [todo] `PUSH [tag]` as opaque constants.
-- [todo] SLOAD/MLOAD/KECCAK/MSTORE/SSTORE with effect ordering (dynamic gas: needs cost
-  model per access).
 - [done] `dupZero`: DUP of a known-zero item → PUSH0 (checked candidate).
 - [done] Greedy scheduler (`greedy`): demand-counted emission with CSE (DUP1 keeps a copy
   while uses remain), last-use consumption in place / by SWAP, solc-style constant recipes
@@ -154,12 +156,36 @@ Stack-local windows proposing candidates for the checker:
 - [todo] Remaining gasol wins: deep-stack reorderings (e.g. `SWAP8 POP … SWAP3 POP POP`).
 - [todo] SSA with explicit sharing (CSE, dead-value elimination) over `Term` DAGs.
 
-### 8. SSA-CFG (whole function) [todo]
+### 8. Memory, storage, KECCAK (next) [todo]
+Goal: optimise the blocks we now cut at barriers, and validate gasol's memory/storage
+rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
+- [todo] Trusted core: MLOAD MSTORE MSTORE8 SLOAD SSTORE TLOAD TSTORE KECCAK256 as `Instr`s,
+  each tied to its `StepRunning` rule in `step_instr`/`run_sound`. Block state gains
+  memory, storage (+ transient), `activeWords`, accessed sets and refund counter; `run`
+  threads them.
+- [todo] Gas: dynamic costs (memory expansion, SSTORE cases, warm/cold SLOAD per the spec,
+  KECCAK per word). `cost` becomes state-dependent; the checker must show the candidate's
+  cost ≤ the original's on every state where the original runs, or restrict to rewrites
+  that keep the effect sequence identical.
+- [todo] SFS: ordered effect list (stores with symbolic address/value terms) plus load
+  terms that name the effect prefix they read from; `srun_run` extended to it.
+- [todo] Normaliser/checker rules, each proven: load-after-store forwarding with
+  provably equal / provably disjoint addresses (constant offsets with 32-byte ranges for
+  memory; MSTORE8 single byte), dead-store elimination, `store(k, load(k))` removal, KECCAK
+  CSE when no intervening memory write overlaps its range.
+- [todo] Scheduler/search: keep effects in a legal order; emit loads/stores from the
+  effect list.
+- [todo] `PUSH [tag]` and other assembler constants (`PUSH #[$]`, `PUSH [$]`, `PUSH data`)
+  as opaque symbolic constants, so blocks are not cut there.
+- [todo] Corpus re-run vs gasol including its memory/storage blocks (gasol temp dir inside
+  the scratchpad, deleted afterwards: one run left 11G in /tmp); log confirmed bugs.
+
+### 9. SSA-CFG (whole function) [todo]
 - [todo] CFG of SSA blocks with block arguments; jump-target resolution (constant tags,
   pushed return-address tags); unresolved dynamic jumps keep their region unoptimised.
 - [todo] Cross-block rewrites; lowering agrees on each edge's stack layout.
 - [todo] Simulation theorem across blocks on `Steps`.
 
 ### Later [todo]
-Memory/storage/keccak as SSA ops with effect ordering, EXP and dynamic memory-expansion
-gas, size criterion, relocation-correctness of the assembler.
+EXP (value-dependent gas), BALANCE/EXTCODE* (warm/cold gas), size criterion option,
+relocation-correctness of the assembler.

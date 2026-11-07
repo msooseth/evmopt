@@ -25,6 +25,24 @@ theorem comm_eval {o : ArithOp} (hc : ∀ x y, o.eval [x, y] = o.eval [y, x]) (a
 def c0 : Term := .const ⟨0⟩
 def c1 : Term := .const (ofNat 1)
 
+def simp1 (o : ArithOp) (a : Term) : Term :=
+  match a with
+  | .const c => .const (o.eval [c])
+  | a => match o, a with
+    | .ISZERO, .app1 .ISZERO (.app1 .ISZERO x) => .app1 .ISZERO x
+    | .NOT, .app1 .NOT x => x
+    | o, a => .app1 o a
+
+theorem simp1_eval (o : ArithOp) (a : Term) (stk : List UInt256) :
+    (simp1 o a).eval stk = o.eval [a.eval stk] := by
+  unfold simp1
+  split
+  · rfl
+  · split
+    · simp only [Term.eval, ArithOp.eval]; rw [isZero_isZero_isZero]
+    · simp only [Term.eval, ArithOp.eval]; rw [lnot_lnot]
+    · rfl
+
 section rules
 variable (stk : List UInt256)
 
@@ -128,15 +146,43 @@ theorem rXOR_eval (a b : Term) : (rXOR a b).eval stk = xor (a.eval stk) (b.eval 
   · next h => rw [xor_zero_of (isC_eval stk h)]
   exact comm_eval (o := .XOR) (fun x y => xor_comm' x y) a b stk
 
-def rEQ (a b : Term) : Term := if a = b then c1 else comm .EQ a b
-theorem rEQ_eval (a b : Term) : (rEQ a b).eval stk = UInt256.eq (a.eval stk) (b.eval stk) := by
+def rEQ (iz : Term → Term) (a b : Term) : Term :=
+  if a = b then c1 else if isC a 0 then iz b else if isC b 0 then iz a else comm .EQ a b
+theorem rEQ_eval (iz : Term → Term) (hiz : ∀ t, (iz t).eval stk = isZero (t.eval stk))
+    (a b : Term) : (rEQ iz a b).eval stk = UInt256.eq (a.eval stk) (b.eval stk) := by
   unfold rEQ
   split
   · next h => subst h; rw [eq_self']; rfl
+  split
+  · next h => rw [hiz, eq_zero_left (isC_eval stk h)]
+  split
+  · next h => rw [hiz, eq_comm', eq_zero_left (isC_eval stk h)]
   exact comm_eval (o := .EQ) (fun x y => eq_comm' x y) a b stk
 
-def rLT (a b : Term) : Term := if isC b 0 || a = b then .const (ofNat 0) else .app2 .LT a b
-theorem rLT_eval (a b : Term) : (rLT a b).eval stk = UInt256.lt (a.eval stk) (b.eval stk) := by
+def rSHL (a b : Term) : Term := if isC a 0 then b else if isC b 0 then c0 else .app2 .SHL a b
+theorem rSHL_eval (a b : Term) :
+    (rSHL a b).eval stk = shiftLeft (b.eval stk) (a.eval stk) := by
+  unfold rSHL
+  split
+  · next h => rw [shiftLeft_zero_shift (isC_eval stk h)]
+  split
+  · next h => rw [shiftLeft_zero_val (isC_eval stk h)]; rfl
+  rfl
+
+def rSHR (a b : Term) : Term := if isC a 0 then b else if isC b 0 then c0 else .app2 .SHR a b
+theorem rSHR_eval (a b : Term) :
+    (rSHR a b).eval stk = shiftRight (b.eval stk) (a.eval stk) := by
+  unfold rSHR
+  split
+  · next h => rw [shiftRight_zero_shift (isC_eval stk h)]
+  split
+  · next h => rw [shiftRight_zero_val (isC_eval stk h)]; rfl
+  rfl
+
+def rLT (iz : Term → Term) (a b : Term) : Term :=
+  if isC b 0 || a = b then .const (ofNat 0) else if isC b 1 then iz a else .app2 .LT a b
+theorem rLT_eval (iz : Term → Term) (hiz : ∀ t, (iz t).eval stk = isZero (t.eval stk))
+    (a b : Term) : (rLT iz a b).eval stk = UInt256.lt (a.eval stk) (b.eval stk) := by
   unfold rLT
   split
   · next h =>
@@ -144,6 +190,8 @@ theorem rLT_eval (a b : Term) : (rLT a b).eval stk = UInt256.lt (a.eval stk) (b.
     rcases h with h | h
     · rw [lt_zero_of (isC_eval stk h)]; rfl
     · subst h; rw [lt_self']; rfl
+  split
+  · next h => rw [hiz, lt_one_right (isC_eval stk h)]
   rfl
 
 def rSLT (a b : Term) : Term := if a = b then .const (ofNat 0) else .app2 .SLT a b
@@ -155,24 +203,6 @@ theorem rSLT_eval (a b : Term) : (rSLT a b).eval stk = UInt256.slt (a.eval stk) 
 
 end rules
 
-def simp1 (o : ArithOp) (a : Term) : Term :=
-  match a with
-  | .const c => .const (o.eval [c])
-  | a => match o, a with
-    | .ISZERO, .app1 .ISZERO (.app1 .ISZERO x) => .app1 .ISZERO x
-    | .NOT, .app1 .NOT x => x
-    | o, a => .app1 o a
-
-theorem simp1_eval (o : ArithOp) (a : Term) (stk : List UInt256) :
-    (simp1 o a).eval stk = o.eval [a.eval stk] := by
-  unfold simp1
-  split
-  · rfl
-  · split
-    · simp only [Term.eval, ArithOp.eval]; rw [isZero_isZero_isZero]
-    · simp only [Term.eval, ArithOp.eval]; rw [lnot_lnot]
-    · rfl
-
 def rules2 (o : ArithOp) (a b : Term) : Term :=
   match o with
   | .ADD => rADD a b
@@ -183,9 +213,11 @@ def rules2 (o : ArithOp) (a b : Term) : Term :=
   | .AND => rAND a b
   | .OR => rOR a b
   | .XOR => rXOR a b
-  | .EQ => rEQ a b
-  | .LT => rLT a b
-  | .GT => rLT b a
+  | .EQ => rEQ (simp1 .ISZERO) a b
+  | .LT => rLT (simp1 .ISZERO) a b
+  | .GT => rLT (simp1 .ISZERO) b a
+  | .SHL => rSHL a b
+  | .SHR => rSHR a b
   | .SLT => rSLT a b
   | .SGT => rSLT b a
   | o => .app2 o a b
@@ -203,9 +235,11 @@ theorem rules2_eval (o : ArithOp) (a b : Term) (stk : List UInt256) :
     | exact rAND_eval stk a b
     | exact rOR_eval stk a b
     | exact rXOR_eval stk a b
-    | exact rEQ_eval stk a b
-    | exact rLT_eval stk a b
-    | exact rLT_eval stk b a
+    | exact rEQ_eval stk _ (fun t => simp1_eval .ISZERO t stk) a b
+    | exact rLT_eval stk _ (fun t => simp1_eval .ISZERO t stk) a b
+    | exact rLT_eval stk _ (fun t => simp1_eval .ISZERO t stk) b a
+    | exact rSHL_eval stk a b
+    | exact rSHR_eval stk a b
     | exact rSLT_eval stk a b
     | exact rSLT_eval stk b a
 

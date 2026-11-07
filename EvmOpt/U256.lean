@@ -138,4 +138,40 @@ theorem lnot_lnot (a : UInt256) : lnot (lnot a) = a := by
   rw [toNat_ofNat_small (by omega), toNat_ofNat_small (by omega)]
   omega
 
+theorem shiftLeft_zero_shift {v sh : UInt256} (h : sh.toNat = 0) : shiftLeft v sh = v := by
+  unfold shiftLeft
+  rw [h, if_neg (by omega), Nat.shiftLeft_zero, Nat.mod_eq_of_lt (toNat_lt v)]
+  exact ext_toNat (toNat_ofNat_small (toNat_lt v))
+
+theorem shiftLeft_zero_val {v sh : UInt256} (h : v.toNat = 0) : shiftLeft v sh = ⟨0⟩ := by
+  unfold shiftLeft
+  split
+  · rfl
+  · rw [h, Nat.zero_shiftLeft]; rfl
+
+theorem shiftRight_zero_shift {v sh : UInt256} (h : sh.toNat = 0) : shiftRight v sh = v := by
+  unfold shiftRight
+  rw [h, if_neg (by omega)]
+  apply ext_toNat
+  show (v.val >>> sh.val).val = v.toNat
+  rw [Fin.shiftRight_val]
+  have h' : sh.val.val = 0 := h
+  rw [h', Nat.shiftRight_zero]; rfl
+
+theorem shiftRight_zero_val {v sh : UInt256} (h : v.toNat = 0) : shiftRight v sh = ⟨0⟩ := by
+  unfold shiftRight
+  split
+  · rfl
+  · apply ext_toNat
+    show (v.val >>> sh.val).val = 0
+    rw [Fin.shiftRight_val]
+    have h' : v.val.val = 0 := h
+    rw [h', Nat.zero_shiftRight]
+
+theorem eq_zero_left {a b : UInt256} (h : a.toNat = 0) : eq a b = isZero b := by
+  unfold eq isZero; rw [h]; by_cases hb : b.toNat = 0 <;> simp [hb] <;> omega
+
+theorem lt_one_right {a b : UInt256} (h : b.toNat = 1) : lt a b = isZero a := by
+  unfold lt isZero; rw [h]; by_cases ha : a.toNat = 0 <;> simp [ha] <;> omega
+
 end EvmSemantics.UInt256

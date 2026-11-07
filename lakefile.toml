@@ -1,6 +1,6 @@
 name = "evm_opt"
 version = "0.1.0"
-defaultTargets = ["EvmOpt", "Checks"]
+defaultTargets = ["EvmOpt", "Checks", "Tests", "evmopt"]
 leanOptions = { autoImplicit = false, relaxedAutoImplicit = false }
 
 [[require]]
@@ -12,3 +12,11 @@ name = "EvmOpt"
 
 [[lean_lib]]
 name = "Checks"
+
+[[lean_exe]]
+name = "evmopt"
+root = "Main"
+
+[[lean_lib]]
+name = "Tests"
+globs = ["Tests.+"]

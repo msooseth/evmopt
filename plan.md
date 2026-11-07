@@ -82,31 +82,35 @@ gasol's SFS rules (`sfs_generator/gasol_optimization.py`), `X` = any term:
 - [done] commutative argument ordering (ADD, MUL, AND, OR, XOR, EQ)
 - [done] `GT(X,Y) ↔ LT(Y,X)`, `SGT(X,Y) ↔ SLT(Y,X)` canonical form
 - [done] `DIV(X,1) → X`, `LT(X,X)`/`GT(X,X)`/`SLT(X,X)`/`SGT(X,X)` → 0
-- [todo] gasol type-2 rules: `ISZ(GT(X,0)) → ISZ(X)`, `GT(1,X) → ISZ(X)`, `LT(X,1) → ISZ(X)`,
-  `EQ(0,X) → ISZ(X)`, `EQ(1,ISZ(X)) → ISZ(X)`, `ISZ(LT(0,X)) → ISZ(X)`, `ISZ(XOR(X,Y)) → EQ`,
+- [done] `GT(1,X) → ISZ(X)`, `LT(X,1) → ISZ(X)`, `EQ(0,X) → ISZ(X)`
+- [todo] remaining gasol type-2 rules: `ISZ(GT(X,0)) → ISZ(X)`, `EQ(1,ISZ(X)) → ISZ(X)`, `ISZ(LT(0,X)) → ISZ(X)`, `ISZ(XOR(X,Y)) → EQ`,
   `ISZ(SUB(X,Y)) → EQ`, `AND(X,AND(X,Y))`, `OR(X,AND(X,Y)) → X`, `AND(X,OR(X,Y)) → X`,
   `OR(OR(X,Y),Y)`, `XOR(X,XOR(X,Y)) → Y`, `AND(X,NOT(X)) → 0`, `OR(X,NOT(X)) → 2^256-1`,
   `MUL(X,SHL(Y,1)) → SHL(Y,X)`, `DIV(X,SHL(Y,1)) → SHR(Y,X)`, `AND(SHL(X,Y),SHL(X,Z))`
-- [todo] `SHL(0,X) → X`, `SHR(0,X) → X`, `SHL(X,0) → 0`, `SHR(X,0) → 0` (correct versions of
+- [done] `SHL(0,X) → X`, `SHR(0,X) → X`, `SHL(X,0) → 0`, `SHR(X,0) → 0` (correct versions of
   gasol's buggy rules, see `gasol-bugs.md` 1-2)
 - not taken: gasol's `DIV(X,X) → 1` / `SDIV(X,X) → 1` (unsound, `gasol-bugs.md` 3)
 - (EXP rules `EXP(X,0)`, `EXP(X,1)`, `EXP(1,X)` wait for EXP support)
 
-### 5. Peephole rewriter (untrusted) [todo]
+### 5. Peephole rewriter (untrusted proposals, proven driver) [done]
+- [done] `pass`/`passes` driver: each window rewrite is validated by `check`; `pass_sound`.
+- [done] regression tests `Tests/Peephole.lean`
 Stack-local windows proposing candidates for the checker:
-- [todo] `SWAPn SWAPn → ε`
-- [todo] `DUPn POP → ε`, `PUSH x POP → ε`
-- [todo] `op POP → POP…` (drop a dead pure result)
-- [todo] `PUSH a PUSH b op → PUSH (a op b)` (and unary/ternary folding)
-- [todo] identity-element forms (`PUSH0 ADD → ε`, `PUSH1 1 MUL → ε`, `PUSH0 SWAP1 SUB → ε`, …)
-- [todo] `DUP1 op` self-forms (`DUP1 SUB → POP PUSH0`, `DUP1 AND → ε`, …)
-- [todo] `SWAP1 comm-op → comm-op`, `SWAP1 LT → GT`, …
-- [todo] `NOT NOT → ε`, `ISZERO ISZERO ISZERO → ISZERO`
-- [todo] `PUSH1 0 → PUSH0` (Shanghai+)
+- [done] `SWAPn SWAPn → ε`
+- [done] `DUPn POP → ε`, `PUSH x POP → ε`
+- [done] `op POP → POP…` (drop a dead pure result)
+- [done] `PUSH a PUSH b op → PUSH (a op b)` (and unary/ternary folding)
+- [done] identity-element forms (`PUSH0 ADD → ε`, `PUSH1 1 MUL → ε`, `PUSH0 SWAP1 SUB → ε`, …)
+- [done] `DUP1 op` self-forms (`DUP1 SUB → POP PUSH0`, `DUP1 AND → ε`, …)
+- [done] `SWAP1 comm-op → comm-op`, `SWAP1 LT → GT`, …
+- [done] `NOT NOT → ε`, `ISZERO ISZERO ISZERO → ISZERO`
+- [done] `PUSH1 0 → PUSH0` (Shanghai+), minimal-width PUSH
+- [done] `PUSH0 EQ → ISZERO`, `PUSH1 1 GT → ISZERO`, `PUSH1 1 SWAP1 LT → ISZERO`, `PUSH0 SHL/SHR → ε`
 
-### 6. Frontend and gasol comparison [todo]
-- [todo] Parse gasol's plain block format (`gasol-optimizer/examples/blocks`), optimise,
-  print gas/size before/after.
+### 6. Frontend and gasol comparison [wip]
+- [done] Parse gasol's plain block format (`gasol-optimizer/examples/blocks`), optimise,
+  print gas/size before/after (`evmopt opt`); validate claimed rewrites (`evmopt check`).
+  gasol's `redundant_swap` optimum `DUP2 SWAP5` validates.
 - [todo] solc `--combined-json asm` input (`gasol-optimizer/examples/jsons-solc`): split
   into blocks, optimise, emit.
 - [todo] Benchmark against gasol's results; record disagreements; log gasol bugs in

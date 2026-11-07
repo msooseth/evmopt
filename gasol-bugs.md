@@ -5,7 +5,7 @@ gasol at `gasol-optimizer/` HEAD ff5efe78. Paths are relative to `gasol-optimize
 of stack (`inpt_sk[0]`), e.g. `SUB(X,0)` = X − 0 and `SHL(a,b)` shifts b by a.
 
 Status: **confirmed** = counterexample checked by the Lean kernel against evm-semantics
-(`tests/GasolBugs.lean`) or reproduced by running gasol; **suspected** = found by reading the
+(`Tests/GasolBugs.lean`) or reproduced by running gasol; **suspected** = found by reading the
 code, not yet reproduced (gasol not runnable here yet: `pandas`/`networkx` missing).
 
 ## Rewrite rules

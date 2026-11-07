@@ -6,3 +6,6 @@ import EvmOpt.Lift
 import EvmOpt.U256
 import EvmOpt.Norm
 import EvmOpt.Check
+import EvmOpt.Peephole
+import EvmOpt.Rules
+import EvmOpt.Asm

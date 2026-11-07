@@ -29,7 +29,7 @@ def reaches (S S' : SState) : Bool :=
   (S.ts.map norm == (S'.ts ++ vars S'.d (S.d - S'.d)).map norm)
 
 structure SearchCfg where
-  maxNodes : Nat := 20000
+  maxNodes : Nat := 5000
   maxLen : Nat := 10
 
 def search (f : Fork) (b : Block) (cfg : SearchCfg := {}) : Option Block := Id.run do
@@ -248,7 +248,8 @@ def cheaper (f : Fork) (a b : Option Block) : Option Block :=
 def optimizeBlock (f : Fork) (b : Block) : Block :=
   let p := tryCand f (peephole f b) (dupZero f (peephole f b))
   let g := (greedy f p).filter fun c => check f p c
-  match cheaper f (search f p) g with
+  let sr := if p.length ≤ 12 then search f p else none
+  match cheaper f sr g with
   | some c => tryCand f p c
   | none => p
 

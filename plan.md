@@ -159,10 +159,11 @@ Stack-local windows proposing candidates for the checker:
 ### 8. Memory, storage, KECCAK (next) [todo]
 Goal: optimise the blocks we now cut at barriers, and validate gasol's memory/storage
 rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
-- [todo] Trusted core: MLOAD MSTORE MSTORE8 SLOAD SSTORE TLOAD TSTORE KECCAK256 as `Instr`s,
-  each tied to its `StepRunning` rule in `step_instr`/`run_sound`. Block state gains
-  memory, storage (+ transient), `activeWords`, accessed sets and refund counter; `run`
-  threads them.
+- [done] Concrete core (`Mem.lean`): `XInstr` = `Instr` + MLOAD MSTORE MSTORE8 SLOAD TLOAD
+  TSTORE KECCAK256; `xrun` over the full frame `State`, each op updating exactly the fields
+  of its `StepRunning` rule incl. dynamic gas (memory expansion, cold SLOAD surcharge, KECCAK
+  words) and pc; `xstep`/`xrun_sound`: `xrun b s = some s'` ⇒ `Steps s s'`.
+- [todo] SSTORE (net-metered gas, refunds, sentry): barrier for now.
 - [todo] Gas: dynamic costs (memory expansion, SSTORE cases, warm/cold SLOAD per the spec,
   KECCAK per word). `cost` becomes state-dependent; the checker must show the candidate's
   cost ≤ the original's on every state where the original runs, or restrict to rewrites

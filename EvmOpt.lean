@@ -3,6 +3,7 @@ import EvmOpt.Decode
 import EvmOpt.Sound
 import EvmOpt.Term
 import EvmOpt.Lift
+import EvmOpt.Mem
 import EvmOpt.U256
 import EvmOpt.Norm
 import EvmOpt.Check

@@ -191,12 +191,48 @@ theorem tryOpt_good {f : Fork} {ρ : Nat → List UInt8} {s0 s1 : State} {b : XB
   · exact xtry_good hρ hl hg _
   · exact hg
 
-def optimizeX (f : Fork) (b : XBlock) : XBlock :=
-  let b1 := xtry f b (segOpt f b)
-  let b2 := tryOpt f (xgreedy f b1) b1
+/-- Exact search on sliding windows of a long block; each improvement is validated on the
+    whole block by `xcheck`. -/
+def windowOpt (f : Fork) (b : XBlock) (w : Nat := 8) (step : Nat := 4) : XBlock := Id.run do
+  let mut cur := b
+  let mut i := 0
+  while i + 2 < cur.length do
+    let win := (cur.drop i).take w
+    match xsearch f win 1500 with
+    | some c =>
+      let cand := cur.take i ++ c ++ cur.drop (i + win.length)
+      let next := xtry f cur cand
+      if next != cur then cur := next
+    | none => pure ()
+    i := i + step
+  return cur
+
+def searchStage (f : Fork) (b b2 : XBlock) : XBlock :=
   if b.any (fun x => x matches .mem _ || x matches .tag _) && b2.length ≤ 24 then
     tryOpt f (xsearch f b2) b2
   else b2
+
+def windowStage (f : Fork) (b3 : XBlock) : XBlock :=
+  if b3.length > 12 then xtry f b3 (windowOpt f b3) else b3
+
+def optimizeX (f : Fork) (b : XBlock) : XBlock :=
+  let b1 := xtry f b (segOpt f b)
+  let b2 := tryOpt f (xgreedy f b1) b1
+  windowStage f (searchStage f b b2)
+
+theorem searchStage_good {f : Fork} {ρ : Nat → List UInt8} {s0 s1 : State} {b b2 : XBlock}
+    (hρ : TagsFit ρ) (hl : s0.stack.length ≤ 1024) (hg : Good f ρ s0 s1 b2) :
+    Good f ρ s0 s1 (searchStage f b b2) := by
+  unfold searchStage; split
+  · exact tryOpt_good hρ hl hg _
+  · exact hg
+
+theorem windowStage_good {f : Fork} {ρ : Nat → List UInt8} {s0 s1 : State} {b3 : XBlock}
+    (hρ : TagsFit ρ) (hl : s0.stack.length ≤ 1024) (hg : Good f ρ s0 s1 b3) :
+    Good f ρ s0 s1 (windowStage f b3) := by
+  unfold windowStage; split
+  · exact xtry_good hρ hl hg _
+  · exact hg
 
 /-- **Optimiser soundness.** For every tag assignment, if the assembled original runs from
     `s0` to `s1`, the assembled optimised block reaches `s1` except pc, with no less gas. -/
@@ -205,11 +241,7 @@ theorem optimizeX_sound {f : Fork} {ρ : Nat → List UInt8} {b : XBlock} {s0 s1
     Good f ρ s0 s1 (optimizeX f b) := by
   have h1 := xtry_good hρ hl (good_refl h) (segOpt f b)
   have h2 := tryOpt_good hρ hl h1 (xgreedy f (xtry f b (segOpt f b)))
-  unfold optimizeX
-  dsimp only
-  split
-  · exact tryOpt_good hρ hl h2 _
-  · exact h2
+  exact windowStage_good hρ hl (searchStage_good hρ hl h2)
 
 /-- Why `xcheck` rejects, for reports. -/
 def xcheckReason (f : Fork) (b b' : XBlock) : String :=

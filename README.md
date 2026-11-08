@@ -5,13 +5,13 @@ by a validator whose soundness is proven against powdr-labs'
 [evm-semantics](https://github.com/powdr-labs/evm-semantics). Design and status: `plan.md`;
 bugs found in gasol: `gasol-bugs.md`; results: `benchmark-*.md`.
 
-Linux and macOS only.
-
 ## Requirements
 
-- git, a C toolchain (`cc`; Xcode command line tools on macOS)
+- git
 - [elan](https://github.com/leanprover/elan) (Lean toolchain manager); the Lean version
-  (4.33.0) is pinned in `lean-toolchain` and installed by elan on first build
+  (4.33.0) is pinned in `lean-toolchain` and installed by elan on first build. The toolchain
+  bundles its own clang and linker. On macOS, if linking `evmopt` fails for a missing SDK,
+  install the Xcode command line tools (`xcode-select --install`).
 - Python 3.9+ (the scripts use only the standard library)
 
 To compare against gasol, additionally:

@@ -14,9 +14,6 @@
 >   [*Super-Optimization of Smart Contracts*](https://doi.org/10.1145/3506800).
 >   ACM Transactions on Software Engineering and Methodology 31(4), 2022.
 >
-> No GASOL code is included here; GASOL (GPL-3.0) is only run as a separate tool for comparison.
-> Its examples (`gasol-optimizer/examples`) serve as our benchmark corpus.
->
 > The correctness proofs are against powdr-labs'
 > [evm-semantics](https://github.com/powdr-labs/evm-semantics), a formal EVM semantics in Lean 4,
 > which in turn builds on Nethermind's [EVMYulLean](https://github.com/NethermindEth/EVMYulLean).

@@ -12,6 +12,7 @@ import tempfile
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -24,11 +25,17 @@ NUM = re.compile(r"\d+")
 
 
 def run_timed(cmd):
-    """Stdout, wall seconds and peak RSS (MB) of one process, via /usr/bin/time."""
-    r = subprocess.run(["/usr/bin/time", "-f", "TIME %e %M", *cmd],
-                       capture_output=True, text=True, check=True)
-    wall, kb = r.stderr.strip().splitlines()[-1].split()[1:]
-    return r.stdout, float(wall), int(kb) // 1024
+    """Stdout, wall seconds and peak RSS (MB) of one process."""
+    t0 = time.perf_counter()
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+    out = p.stdout.read()
+    _, status, ru = os.wait4(p.pid, 0)
+    p.returncode = os.waitstatus_to_exitcode(status)
+    if p.returncode != 0:
+        raise RuntimeError(f"{cmd} failed with {p.returncode}")
+    # ru_maxrss is KiB on Linux, bytes on macOS
+    rss = ru.ru_maxrss // (1024 * 1024 if sys.platform == "darwin" else 1024)
+    return out, time.perf_counter() - t0, rss
 
 
 def gasol_log(log):

@@ -23,4 +23,5 @@ one() {
   cat "$d/report"
 }
 export -f one
-grep -v '^\s*$' "$BLOCKS" | xargs -d '\n' -P "$(nproc)" -I{} bash -c 'one "$@"' _ {}
+grep -v '^[[:space:]]*$' "$BLOCKS" | tr '\n' '\0' |
+  xargs -0 -P "$(getconf _NPROCESSORS_ONLN)" -I{} bash -c 'one "$@"' _ {}

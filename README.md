@@ -16,6 +16,12 @@
 >
 > No GASOL code is included here; GASOL (GPL-3.0) is only run as a separate tool for comparison.
 > Its examples (`gasol-optimizer/examples`) serve as our benchmark corpus.
+>
+> The correctness proofs are against powdr-labs'
+> [evm-semantics](https://github.com/powdr-labs/evm-semantics), a formal EVM semantics in Lean 4,
+> which in turn builds on Nethermind's [EVMYulLean](https://github.com/NethermindEth/EVMYulLean).
+> We thank both teams: without a precise, executable and conformance-tested model of the EVM,
+> proving the optimiser correct would not be possible.
 
 A gasol-inspired superoptimizer for EVM basic blocks, written in Lean 4. Every rewrite is checked
 by a validator whose soundness is proven against powdr-labs'

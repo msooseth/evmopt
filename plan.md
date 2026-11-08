@@ -1,6 +1,6 @@
 # EVM block superoptimizer in Lean
 
-A gasol-style (`gasol-optimizer/`) basic-block superoptimizer for EVM, written in Lean 4
+A gasol-inspired (`gasol-optimizer/`) basic-block superoptimizer for EVM, written in Lean 4
 and proven correct against powdr-labs' `evm-semantics` (`evm-semantics/`).
 
 Markers: `[todo]`, `[wip]`, `[done]`.

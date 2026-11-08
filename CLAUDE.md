@@ -1,6 +1,6 @@
 # EVM block optimizer in Lean
 
-gasol-style (`gasol-optimizer/`) basic-block optimizer written in Lean 4, proven against
+gasol-inspired (`gasol-optimizer/`) basic-block optimizer written in Lean 4, proven against
 powdr-labs' `evm-semantics/` (local path dependency). `EVMYulLean/` and `powdr/` are
 reference clones only; none of the clones are tracked in this repo.
 

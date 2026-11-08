@@ -13,27 +13,44 @@ def optimizeFile (f : Fork) (path : String) : IO Unit := do
     let out := optimizeItems f items
     IO.println s!"in:  {showItems items}"
     IO.println s!"out: {showItems out}"
-    IO.println s!"gas (stack-only part): {itemsCost f items} -> {itemsCost f out}; \
-      bytes: {itemsSize items} -> {itemsSize out}"
+    IO.println s!"     gas {itemsCost f items} -> {itemsCost f out}, \
+      bytes {itemsSize items} -> {itemsSize out}"
 
-def checkPair (f : Fork) (a b : String) : IO UInt32 := do
-  let parse (s : String) : Option Block :=
-    (parseBlock s).mapM fun | .ins (.base i) => some i | _ => none
-  match parse a, parse b with
+def hexWord (v : UInt256) : String :=
+  "0x" ++ String.ofList (Nat.toDigits 16 v.toNat)
+
+/-- Is `cand` a correct (and no more expensive) replacement for `orig`? -/
+def verifyPair (f : Fork) (a b : String) : IO UInt32 := do
+  let pa := tagItems [] (parseBlock a)
+  let pb := pa.bind fun (_, tbl) => tagItems tbl (parseBlock b)
+  match pa.map (·.1), pb.map (·.1) with
   | some x, some y =>
-    let ok := check f x y
-    IO.println s!"check: {ok} (gas {cost f x} -> {cost f y})"
-    if !ok then
-      IO.println s!"  reason: {checkReason f x y}"
-      match counterexample f x y with
+    let ok := xcheck f x y
+    if ok then
+      IO.println s!"verified: equivalent, gas {xcost f x} -> {xcost f y}"
+      return 0
+    IO.println s!"rejected: {xcheckReason f x y}"
+    let hasTag := (x ++ y).any (· matches .tag _)
+    -- show only the inputs the original reads and the outputs it produces
+    let (din, dout) := ((xlift f x).map fun X => (X.S.d, X.S.ts.length)).getD (4, 4)
+    let shw := fun (n : Nat) (l : List UInt256) =>
+      "[" ++ ", ".intercalate ((l.take n).map hexWord) ++ "]"
+    match x.mapM XInstr.base?, y.mapM XInstr.base? with
+    | some bx, some by_ =>
+      match counterexample f bx by_ with
       | some (stk, r, r') =>
-        IO.println s!"  WRONG: input (top first) {stk.take 6}"
-        IO.println s!"    original -> {r.take 6}"
-        IO.println s!"    candidate -> {r'.map (·.take 6)}"
-      | none => IO.println "  no concrete counterexample found"
-    return if ok then 0 else 1
+        IO.println s!"  counterexample: input stack (top first) {shw din stk}"
+        IO.println s!"    original  -> {shw dout r}"
+        IO.println s!"    candidate -> {(r'.map (shw dout)).getD "fails"}"
+      | none => IO.println "  (no concrete counterexample found)"
+    | _, _ =>
+      match (if hasTag then none else xcounterexample f x y) with
+      | some (what, stk) =>
+        IO.println s!"  counterexample: input stack (top first) {shw din stk}: {what} differs"
+      | none => IO.println "  (no concrete counterexample found)"
+    return 1
   | _, _ =>
-    IO.eprintln "both blocks must consist of supported stack instructions only"
+    IO.eprintln "unsupported instruction (only straight-line code: no jumps, calls, SSTORE, …)"
     return 2
 
 def loadJson (path : String) : IO Lean.Json := do
@@ -140,16 +157,8 @@ def main (args : List String) : IO UInt32 := do
   | ["gasolcmp", "-v", a, b] => gasolCmp f a b true; return 0
   | "stats" :: paths => for p in paths do statsJson f p
                         return 0
-  | ["opt", path] => optimizeFile f path; return 0
-  | ["check", a, b] => checkPair f a b
-  | ["xcheck", a, b] =>
-    let pa := tagItems [] (parseBlock a)
-    let pb := pa.bind fun (_, tbl) => tagItems tbl (parseBlock b)
-    match pa.map (·.1), pb.map (·.1) with
-    | some x, some y =>
-      IO.println s!"xcheck: {xcheckReason f x y} (stack gas {xcost f x} -> {xcost f y})"
-      return if xcheck f x y then 0 else 1
-    | _, _ => IO.eprintln "unsupported instruction"; return 2
+  | ["optimize", path] => optimizeFile f path; return 0
+  | ["verify", a, b] => verifyPair f a b
   | _ =>
-    IO.eprintln "usage: evmopt [--fork F] (opt <blocks.txt> | check \"<orig>\" \"<cand>\" | gasolcmp [-v] <orig.json> <gasol.json> | stats <asm.json>...)"
+    IO.eprintln "usage: evmopt [--fork F] (optimize <blocks.txt> | verify \"<original>\" \"<candidate>\" | stats <asm.json>... | gasolcmp [-v] <orig.json> <gasol.json>)"
     return 2

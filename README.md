@@ -38,25 +38,40 @@ evm-semantics and takes a few minutes.
 
 ## Using evmopt
 
-Optimise blocks (gasol's text format, one block per line):
+`optimize` reads blocks in gasol's text format, one per line, and prints a cheaper equivalent
+of each (gas counts the stack instructions; memory/storage operations are kept as they are):
 
-```sh
-lake exe evmopt opt gasol-optimizer/examples/blocks/redundant_swap.txt
+```
+$ lake exe evmopt optimize gasol-optimizer/examples/blocks/order_load_instructions.txt
+in:  PUSH1 0x08 SLOAD SWAP1 MLOAD SWAP1 DUP2 MSTORE SWAP1 DUP2 SWAP1 PUSH1 0x20 DUP3 ADD SWAP1
+out: PUSH1 0x08 SLOAD SWAP1 MLOAD SWAP1 DUP2 MSTORE DUP1 PUSH1 0x20 ADD DUP2 SWAP3
+     gas 33 -> 27, bytes 16 -> 14
 ```
 
-Check a claimed rewrite; a rejected one comes with a concrete counterexample:
+`verify` checks a rewrite you supply (e.g. another optimizer's output) with the proven
+checker; a rejection says why, with a concrete counterexample when one is found:
 
-```sh
-lake exe evmopt check "SWAP1 SWAP4 DUP5 SWAP2 SWAP1" "DUP2 SWAP5"
-lake exe evmopt check "PUSH1 0x01 PUSH1 0x01 SUB" "PUSH1 0x01"
-lake exe evmopt xcheck "SLOAD DUP1 PUSH1 0x01 ADD SWAP1 POP" "SLOAD PUSH1 0x01 ADD"
+```
+$ lake exe evmopt verify "SWAP1 SWAP4 DUP5 SWAP2 SWAP1" "DUP2 SWAP5"
+verified: equivalent, gas 15 -> 6
+
+$ lake exe evmopt verify "PUSH1 0x01 PUSH1 0x01 SUB" "PUSH1 0x01"
+rejected: results differ, or could not be proven equal
+  counterexample: input stack (top first) []
+    original  -> [0x0]
+    candidate -> [0x1]
+
+$ lake exe evmopt verify "PUSH0 MLOAD POP" ""
+rejected: candidate drops, adds or reorders memory/storage operations (not supported yet)
+  (no concrete counterexample found)
 ```
 
-(`check` for stack-only blocks, `xcheck` for blocks with memory/storage ops.) Whole contracts
-from `solc --combined-json asm`:
+The exit code is 0 for verified, 1 for rejected. `stats` optimises whole contracts from
+`solc --combined-json asm` and prints totals:
 
-```sh
-lake exe evmopt stats gasol-optimizer/examples/jsons-solc/*.json_solc
+```
+$ lake exe evmopt stats gasol-optimizer/examples/jsons-solc/0x1f2cF791d940Bbb9fbe777271afa6ff9bBA8AbA0.json_solc
+…: 400 blocks, stack-op gas 4868 -> 4577, stack-op bytes 3127 -> 3057
 ```
 
 Options go first: `--fork london|paris|shanghai|cancun|prague|osaka` (default `cancun`;
@@ -94,7 +109,7 @@ PUSH0 is used only from Shanghai on).
 A recorded gasol run (summary only) is in `bench/gasol-ff5efe78/summary.csv`.
 
 Single blocks: `GASOL_PY=~/gasol-venv/bin/python scripts/gasol_diff.sh blocks.txt -solver z3`
-runs gasol on each line of `blocks.txt` and validates its output with `evmopt check`
+runs gasol on each line of `blocks.txt` and validates its output with `evmopt verify`
 (`Tests/gasol_bug_blocks.txt` holds blocks that expose gasol bugs).
 
 ## Layout

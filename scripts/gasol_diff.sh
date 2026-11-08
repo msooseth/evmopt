@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run gasol on each block (one per line) of $1 and validate its output with evmopt check.
+# Run gasol on each block (one per line) of $1 and validate its output with evmopt verify.
 # Usage: GASOL_PY=<python with networkx+pandas> scripts/gasol_diff.sh blocks.txt [extra gasol flags]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -15,7 +15,7 @@ one() {
     echo "### $1"
     echo "gasol: ${opt:-<no output>}"
     if [ -n "$opt" ]; then
-      "$ROOT/.lake/build/bin/evmopt" --fork "${EVMOPT_FORK:-cancun}" check "$1" "$opt" 2>&1 | cut -c1-200 || true
+      "$ROOT/.lake/build/bin/evmopt" --fork "${EVMOPT_FORK:-cancun}" verify "$1" "$opt" 2>&1 | cut -c1-200 || true
     else
       printf '%s\n' "$out" | grep -E "Error|Exception|Traceback" | tail -2 | cut -c1-200
     fi

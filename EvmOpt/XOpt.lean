@@ -246,16 +246,16 @@ theorem optimizeX_sound {f : Fork} {ρ : Nat → List UInt8} {b : XBlock} {s0 s1
 /-- Why `xcheck` rejects, for reports. -/
 def xcheckReason (f : Fork) (b b' : XBlock) : String :=
   match xlift f b, xlift f b' with
-  | none, _ => "original not liftable"
-  | _, none => "candidate not liftable"
+  | none, _ => "original contains an unsupported instruction"
+  | _, none => "candidate contains an unsupported instruction"
   | some X, some X' =>
     if normE X.E != normE X'.E then
-      if X.E.map (·.1) == X'.E.map (·.1) then "effect arguments differ (e.g. reordered stores)"
-      else "effect sequence differs"
-    else if X'.S.d > X.S.d then "candidate reads deeper"
-    else if X.S.slack + ((X.S.d : Int) - X'.S.d) > X'.S.slack then "candidate needs more stack room"
-    else if X'.sc > X.sc then "candidate costs more"
+      if X.E.map (·.1) == X'.E.map (·.1) then "memory/storage operations get different arguments (e.g. reordered stores; not supported yet)"
+      else "candidate drops, adds or reorders memory/storage operations (not supported yet)"
+    else if X'.S.d > X.S.d then "candidate reads deeper into the stack than the original"
+    else if X.S.slack + ((X.S.d : Int) - X'.S.d) > X'.S.slack then "candidate needs more stack space than the original (could overflow the 1024 limit)"
+    else if X'.sc > X.sc then "candidate costs more gas"
     else if xcheck f b b' then "ok"
-    else "stack result differs after normalisation"
+    else "results differ, or could not be proven equal"
 
 end EvmOpt

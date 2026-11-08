@@ -13,8 +13,8 @@ reference clones only; none of the clones are tracked in this repo.
 ## Build
 - `lake build` from the repo root (Lean v4.33, Batteries only, no Mathlib). Builds the
   library, `Checks.lean` (axiom pins), `Tests/` (`#guard` regression tests) and `evmopt`.
-- `.lake/build/bin/evmopt opt <blocks.txt>` optimises gasol-format blocks (one per line);
-  `evmopt check "<orig>" "<candidate>"` validates a claimed rewrite with the trusted checker.
+- `lake exe evmopt optimize <blocks.txt>` optimises gasol-format blocks (one per line);
+  `lake exe evmopt verify "<original>" "<candidate>"` validates a claimed rewrite.
 - Trusted core: `Sound` (`run_sound`), `Lift` (`srun_run`), `Norm` (`norm_eval`), `Check`
   (`check_sound`, `optimizeWith_steps`), `Peephole` (`pass_sound`). Everything else
   (`Rules`, `Asm`, `Main`) is untrusted and only proposes candidates.

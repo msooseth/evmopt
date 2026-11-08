@@ -22,8 +22,7 @@
 
 A gasol-inspired superoptimizer for EVM basic blocks, written in Lean 4. Every rewrite is checked
 by a validator whose soundness is proven against powdr-labs'
-[evm-semantics](https://github.com/powdr-labs/evm-semantics). Design and status: `plan.md`;
-bugs found in gasol: `gasol-bugs.md`; results: `benchmark-*.md`.
+[evm-semantics](https://github.com/powdr-labs/evm-semantics).
 
 ## Requirements
 

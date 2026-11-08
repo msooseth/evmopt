@@ -24,7 +24,7 @@ To compare against gasol, additionally:
 ## Setup
 
 ```sh
-git clone <this repo> evm-rewrite && cd evm-rewrite
+git clone https://github.com/msooseth/evm2evm && cd evm2evm
 git clone https://github.com/powdr-labs/evm-semantics
 git -C evm-semantics checkout 2f8714d6ba960a3de67720019b54513f5bc1a2e3
 git clone https://github.com/costa-group/gasol-optimizer

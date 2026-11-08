@@ -137,3 +137,7 @@ runs gasol on each line of `blocks.txt` and validates its output with `evmopt ve
 - `Checks.lean` — axiom pins of the headline theorems.
 - `Tests/` — `#guard` regression tests, kernel-checked gasol counterexamples.
 - `scripts/` — `benchmark.py`, `run_gasol.py`, `gasol_tmp.py`, `gasol_diff.sh`.
+
+## License
+
+GPL-3.0, the same as GASOL; see `LICENSE`. The evm-semantics dependency is Apache-2.0.

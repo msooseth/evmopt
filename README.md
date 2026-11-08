@@ -38,17 +38,29 @@ evm-semantics and takes a few minutes.
 
 ## Using evmopt
 
+Optimise blocks (gasol's text format, one block per line):
+
 ```sh
-E=.lake/build/bin/evmopt
-$E opt gasol-optimizer/examples/blocks/redundant_swap.txt   # gasol's block format, one per line
-$E check "SWAP1 SWAP4 DUP5 SWAP2 SWAP1" "DUP2 SWAP5"           # validate a stack-only rewrite
-$E xcheck "PUSH0 MLOAD DUP1 ADD" "PUSH0 MLOAD DUP1 ADD"        # ... one with memory/storage ops
-$E stats gasol-optimizer/examples/jsons-solc/*.json_solc      # solc --combined-json asm
-$E gasolcmp ORIG.json_solc GASOL_OPTIMIZED.json_solc          # validate gasol's output
+lake exe evmopt opt gasol-optimizer/examples/blocks/redundant_swap.txt
 ```
 
-All commands take `--fork london|paris|shanghai|cancun|prague|osaka` first (default
-`cancun`); PUSH0 is used only from Shanghai on.
+Check a claimed rewrite; a rejected one comes with a concrete counterexample:
+
+```sh
+lake exe evmopt check "SWAP1 SWAP4 DUP5 SWAP2 SWAP1" "DUP2 SWAP5"
+lake exe evmopt check "PUSH1 0x01 PUSH1 0x01 SUB" "PUSH1 0x01"
+lake exe evmopt xcheck "SLOAD DUP1 PUSH1 0x01 ADD SWAP1 POP" "SLOAD PUSH1 0x01 ADD"
+```
+
+(`check` for stack-only blocks, `xcheck` for blocks with memory/storage ops.) Whole contracts
+from `solc --combined-json asm`:
+
+```sh
+lake exe evmopt stats gasol-optimizer/examples/jsons-solc/*.json_solc
+```
+
+Options go first: `--fork london|paris|shanghai|cancun|prague|osaka` (default `cancun`;
+PUSH0 is used only from Shanghai on).
 
 ## Comparing with gasol
 

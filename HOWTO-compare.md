@@ -19,7 +19,7 @@
 3. Benchmark evmopt against those results:
 
    ```sh
-   scripts/benchmark.py --gasol bench/gasol-run/raw --jobs 12 > benchmark-$(git rev-parse --short HEAD).md
+   scripts/benchmark.py --gasol bench/gasol-run/raw --jobs 12 > benchmark-details.md
    ```
 
    Per contract: evmopt's time, memory, gas and bytes saved; gasol's time and the gas and

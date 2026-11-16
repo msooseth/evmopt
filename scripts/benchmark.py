@@ -2,6 +2,7 @@
 """Benchmark evmopt (and optionally gasol's outputs) on gasol's asm corpus; prints markdown.
 
 Usage: scripts/benchmark.py [--gasol DIR] [--jobs N] [--only NAME...]
+With --gasol, only the contracts gasol finished.
 DIR holds <name>/<name>_optimized.json_solc[.gz] and <name>/log.txt per contract (gasol runs),
 e.g. bench/gasol-ff5efe78/raw.
 """
@@ -102,6 +103,8 @@ def main():
     files = sorted(CORPUS.glob("*.json_solc"))
     if args.only:
         files = [f for f in files if any(f.stem.startswith(o) for o in args.only)]
+    if args.gasol:
+        files = [f for f in files if (gasol_log(args.gasol / f.stem / "log.txt") or {}).get("time") is not None]
     t0 = time.perf_counter()
     with cf.ThreadPoolExecutor(args.jobs) as ex:
         rows = sorted(ex.map(lambda f: bench_one(f, args.gasol), files), key=lambda r: r["name"])

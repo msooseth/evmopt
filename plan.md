@@ -193,7 +193,7 @@ rewrites (its alias analysis looks wrong: `gasol-bugs.md` 16-18).
   every assignment of PUSH1..32 values to tags, the assembled candidate matches the assembled
   original (via `xsrun_assemble`: lifting commutes with substitution). Schedulers use
   sentinel PUSH3s, validated against the real asm blocks.
-- [done] Scheduler work to close the gap with gasol (see `benchmark-*.md`): pre-clean of
+- [done] Scheduler work to close the gap with gasol (see `benchmark-details.md`): pre-clean of
   dead inputs, last-use SWAP1/in-place commutative operands, interleaved effect emission,
   bottom-preserving goal construction, effect-ordered search, `DIV/MUL` by `2^k`, `PUSH c
   NOT` recipe. On the 4406 blocks gasol improves: evmopt 5655 -> 10474 gas (gasol 16279, of

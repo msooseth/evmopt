@@ -109,7 +109,7 @@ are measured by evmopt on both outputs; "validated" counts only rewrites our che
 | gas saved, the 28 gasol finished, validated | 18237 | 12090 |
 | bytes saved, the 28 gasol finished, validated | 5065 | 4156 |
 
-To reproduce, see [`HOWTO-compare.md`](HOWTO-compare.md).
+Per contract: [`benchmark-details.md`](benchmark-details.md); to reproduce, see [`HOWTO-compare.md`](HOWTO-compare.md).
 
 ## Layout
 

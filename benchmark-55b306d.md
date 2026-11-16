@@ -4,9 +4,6 @@ Corpus: `gasol-optimizer/examples/jsons-solc` (30 contracts, 26580 blocks). Mach
 HX 370, 12 cores. Lean 4.33.0. evmopt `--fork cancun`, 12 contracts in parallel. gasol HEAD
 ff5efe78, `-solver z3`, 2 s/block, 8 contracts in parallel, 50 min limit per contract.
 
-Reproduce: run gasol per contract via `scripts/gasol_tmp.py <json> -solver z3` into
-`DIR/<name>/` (log in `DIR/<name>/log.txt`), then `scripts/benchmark.py --gasol DIR --jobs 12`.
-
 ## Summary
 
 | | evmopt | gasol |
@@ -77,3 +74,12 @@ Reproduce: run gasol per contract via `scripts/gasol_tmp.py <json> -solver z3` i
 - gasol effect-block rewrites: 1717 blocks, unchanged 878, validated 633, wrong 0, effects changed without counterexample 206
 - same stack-only blocks: original 43328, gasol (validated) 41951, evmopt 41630; evmopt better on 57, gasol better on 19
 ```
+
+## Reproduce
+
+The corpus is `examples/jsons-solc` of the gasol-optimizer clone (ff5efe78) from the README's
+Setup. Check out evmopt at 55b306d and `lake build`. Run gasol per contract with
+`scripts/gasol_tmp.py <json> -solver z3` into `DIR/<name>/`, saving its output to
+`DIR/<name>/log.txt`, then `scripts/benchmark.py --gasol DIR --jobs 12`. `scripts/run_gasol.py`
+and the steps in [`HOWTO-compare.md`](HOWTO-compare.md) are for later commits: that
+`benchmark.py` reads a different (gzipped) layout.

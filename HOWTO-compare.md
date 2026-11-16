@@ -22,10 +22,8 @@
    scripts/benchmark.py --gasol bench/gasol-run/raw --jobs 12 > benchmark-$(git rev-parse --short HEAD).md
    ```
 
-   Per contract: evmopt time and peak memory, gas and bytes saved; gasol's time and its own
-   estimate of gas saved. Then, summed over the corpus, `gasolcmp`'s verdict on every gasol
-   block rewrite: validated by our checker, rejected (with a concrete counterexample if one
-   is found on random inputs), or changing memory/storage operations.
+   Per contract: evmopt's time, memory, gas and bytes saved; gasol's time and the gas and
+   bytes its validated rewrites save. Then `gasolcmp`'s verdict on every gasol rewrite.
 
 A recorded gasol run (summary only) is in `bench/gasol-ff5efe78/summary.csv`.
 

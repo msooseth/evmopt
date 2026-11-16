@@ -43,12 +43,7 @@ def gasol_log(log):
         return None
     text = log.read_text(errors="replace")
     t = re.search(r"Total time: ([\d.]+)", text)
-    gi = re.search(r"Estimated initial gas: (\d+)", text)
-    go = re.search(r"Estimated gas optimized: (\d+)", text)
-    return {
-        "time": float(t.group(1)) if t else None,
-        "saved": int(gi.group(1)) - int(go.group(1)) if gi and go else None,
-    }
+    return {"time": float(t.group(1)) if t else None}
 
 
 def bench_one(path, gasol_dir):
@@ -71,13 +66,13 @@ def bench_one(path, gasol_dir):
             if opt.exists():
                 cmp = subprocess.run([str(EVMOPT), "--fork", "cancun", "gasolcmp", str(path), str(opt)],
                                      capture_output=True, text=True).stdout
-                row["cmp"] = cmp.splitlines()[-3:]
+                row["cmp"] = cmp.splitlines()[-4:]
     return row
 
 
 def sum_cmp(rows):
     """Aggregate gasolcmp's three summary lines over all contracts."""
-    keys = {"blocks:": 8, "effect blocks:": 5, "stack-only blocks gas:": 5}
+    keys = {"blocks:": 8, "effect blocks:": 5, "stack-only blocks gas:": 5, "measured:": 6}
     tot = {k: [0] * n for k, n in keys.items()}
     for r in rows:
         for line in r.get("cmp", []):
@@ -87,6 +82,15 @@ def sum_cmp(rows):
                     if len(nums) == n:
                         tot[k] = [a + b for a, b in zip(tot[k], nums)]
     return tot
+
+
+def measured(r):
+    """gasol's (gas, bytes) saved by its validated runs, and by its raw output."""
+    for line in r.get("cmp", []):
+        if line.startswith("measured:"):
+            g0, g1, gv, b0, b1, bv = map(int, NUM.findall(line)[:6])
+            return (g0 - gv, b0 - bv), (g0 - g1, b0 - b1)
+    return None
 
 
 def main():
@@ -103,17 +107,18 @@ def main():
         rows = sorted(ex.map(lambda f: bench_one(f, args.gasol), files), key=lambda r: r["name"])
     total_wall = time.perf_counter() - t0
 
-    print("| contract | blocks | evmopt s | evmopt MB | gas saved | bytes saved | gasol s | gasol est. gas saved |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    print("| contract | blocks | evmopt s | evmopt MB | gas saved | bytes saved | gasol s "
+          "| gasol gas saved | gasol bytes saved |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in rows:
         g = r.get("gasol") or {}
         gt = f"{g['time']:.0f}" if g.get("time") is not None else ("fail/timeout" if args.gasol else "-")
-        gs = str(g["saved"]) if g.get("saved") is not None else "-"
+        m = measured(r) if g.get("time") is not None else None
+        gs = f"{m[0][0]} | {m[0][1]}" if m else "- | -"
         print(f"| {r['name'][:10]} | {r['blocks']} | {r['time']:.1f} | {r['rss']} | "
               f"{r['gas'][0] - r['gas'][1]} | {r['bytes'][0] - r['bytes'][1]} | {gt} | {gs} |")
     gb = sum(r["gas"][0] for r in rows); ga = sum(r["gas"][1] for r in rows)
     sb = sum(r["bytes"][0] for r in rows); sa = sum(r["bytes"][1] for r in rows)
-    gsaved = [r["gasol"]["saved"] for r in rows if r.get("gasol") and r["gasol"].get("saved") is not None]
     gtime = [r["gasol"]["time"] for r in rows if r.get("gasol") and r["gasol"].get("time") is not None]
     print()
     print(f"- contracts: {len(rows)}, blocks: {sum(r['blocks'] for r in rows)}")
@@ -121,8 +126,13 @@ def main():
           f"wall {total_wall:.1f} s with {args.jobs} jobs")
     print(f"- evmopt stack-op gas {gb} -> {ga} (saved {gb - ga}), bytes {sb} -> {sa} (saved {sb - sa})")
     if args.gasol:
-        print(f"- gasol: {len(gtime)} finished, total {sum(gtime):.0f} s; "
-              f"estimated gas saved {sum(gsaved)} over those contracts")
+        print(f"- gasol: {len(gtime)} finished, total {sum(gtime):.0f} s")
+        done = [r for r in rows if r.get("gasol") and r["gasol"].get("time") is not None and measured(r)]
+        ev = (sum(r["gas"][0] - r["gas"][1] for r in done), sum(r["bytes"][0] - r["bytes"][1] for r in done))
+        val = tuple(sum(measured(r)[0][i] for r in done) for i in (0, 1))
+        raw = tuple(sum(measured(r)[1][i] for r in done) for i in (0, 1))
+        print(f"- on the {len(done)} gasol finished, gas / bytes saved: evmopt {ev[0]} / {ev[1]}, "
+              f"gasol validated {val[0]} / {val[1]}, gasol unvalidated {raw[0]} / {raw[1]}")
         tot = sum_cmp(rows)
         u, v, g0, g1, rj, wr, ns, mm = tot["blocks:"]
         print(f"- gasol stack-only rewrites: unchanged {u}, validated {v} ({g0} -> {g1} gas), "

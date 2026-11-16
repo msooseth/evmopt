@@ -108,8 +108,6 @@ are measured by evmopt on both outputs; "validated" counts only rewrites our che
 | per-contract time, median / max | 53 s / 128 s | 466 s / 874 s |
 | gas saved, the 28 gasol finished, validated | 18237 | 12090 |
 | bytes saved, the 28 gasol finished, validated | 5065 | 4156 |
-| gas / bytes saved, the 28, unvalidated | – | 16075 / 5510 |
-| gas / bytes saved, all 30 | 20085 / 5591 | – |
 
 To reproduce, see [`HOWTO-compare.md`](HOWTO-compare.md).
 

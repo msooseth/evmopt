@@ -22,7 +22,7 @@
    scripts/benchmark.py --gasol bench/gasol-run/raw --jobs 12 > benchmark-details.md
    ```
 
-   Per contract: evmopt's time, memory, gas and bytes saved; gasol's time and the gas and
+   Per contract: evmopt's time, gas and bytes saved; gasol's time and the gas and
    bytes its validated rewrites save. Then `gasolcmp`'s verdict on every gasol rewrite.
 
 A recorded gasol run (summary only) is in `bench/gasol-ff5efe78/summary.csv`.

@@ -13,7 +13,6 @@ import tempfile
 import os
 import re
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -26,17 +25,10 @@ NUM = re.compile(r"\d+")
 
 
 def run_timed(cmd):
-    """Stdout, wall seconds and peak RSS (MB) of one process."""
+    """Stdout and wall seconds of one process."""
     t0 = time.perf_counter()
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
-    out = p.stdout.read()
-    _, status, ru = os.wait4(p.pid, 0)
-    p.returncode = os.waitstatus_to_exitcode(status)
-    if p.returncode != 0:
-        raise RuntimeError(f"{cmd} failed with {p.returncode}")
-    # ru_maxrss is KiB on Linux, bytes on macOS
-    rss = ru.ru_maxrss // (1024 * 1024 if sys.platform == "darwin" else 1024)
-    return out, time.perf_counter() - t0, rss
+    out = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, check=True).stdout
+    return out, time.perf_counter() - t0
 
 
 def gasol_log(log):
@@ -49,12 +41,12 @@ def gasol_log(log):
 
 def bench_one(path, gasol_dir):
     name = path.stem
-    out, wall, rss = run_timed([str(EVMOPT), "--fork", "cancun", "stats", str(path)])
+    out, wall = run_timed([str(EVMOPT), "--fork", "cancun", "stats", str(path)])
     m = STATS.search(out)
     if m is None:
         raise RuntimeError(f"unexpected evmopt output for {name}: {out!r}")
     n, gb, ga, sb, sa = map(int, m.groups())
-    row = {"name": name, "blocks": n, "time": wall, "rss": rss, "gas": (gb, ga), "bytes": (sb, sa)}
+    row = {"name": name, "blocks": n, "time": wall, "gas": (gb, ga), "bytes": (sb, sa)}
     if gasol_dir:
         d = gasol_dir / name
         row["gasol"] = gasol_log(d / "log.txt")
@@ -110,9 +102,9 @@ def main():
         rows = sorted(ex.map(lambda f: bench_one(f, args.gasol), files), key=lambda r: r["name"])
     total_wall = time.perf_counter() - t0
 
-    print("| contract | blocks | evmopt s | gasol s | evmopt MB | evmopt gas saved | gasol gas saved "
+    print("| contract | blocks | evmopt s | gasol s | evmopt gas saved | gasol gas saved "
           "| evmopt bytes saved | gasol bytes saved | evmopt better |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---|")
     for r in rows:
         g = r.get("gasol") or {}
         gt = f"{g['time']:.0f}" if g.get("time") is not None else ("fail/timeout" if args.gasol else "-")
@@ -121,7 +113,7 @@ def main():
         eg, eb = r['gas'][0] - r['gas'][1], r['bytes'][0] - r['bytes'][1]
         better = {(True, True): "both", (True, False): "gas", (False, True): "bytes"}.get(
             (eg > m[0][0], eb > m[0][1]), "-") if m else "-"
-        print(f"| {r['name'][:10]} | {r['blocks']} | {r['time']:.1f} | {gt} | {r['rss']} | "
+        print(f"| {r['name'][:10]} | {r['blocks']} | {r['time']:.1f} | {gt} | "
               f"{eg} | {gg} | {eb} | {gb} | {better} |")
     gb = sum(r["gas"][0] for r in rows); ga = sum(r["gas"][1] for r in rows)
     sb = sum(r["bytes"][0] for r in rows); sa = sum(r["bytes"][1] for r in rows)

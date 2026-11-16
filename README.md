@@ -98,16 +98,16 @@ PUSH0 is used only from Shanghai on).
 
 ## Comparing with gasol
 
-gasol's corpus (30 contracts, 26580 blocks); evmopt at b3993ad, gasol at ff5efe78. Gas and bytes
-are measured by evmopt on both outputs; "validated" counts only rewrites our checker proves.
+The 28 contracts of gasol's corpus that gasol finishes (24426 blocks); evmopt at 9ca37f4, gasol
+at ff5efe78. Gas and bytes are measured by evmopt on both outputs; gasol's count only the rewrites
+our checker validates.
 
 | | evmopt | gasol |
 |---|---:|---:|
-| contracts finished | 30 | 28 (2 fail/timeout) |
-| total time, sum over contracts | 1593 s | 12190 s |
-| per-contract time, median / max | 53 s / 128 s | 466 s / 874 s |
-| gas saved, the 28 gasol finished, validated | 18237 | 12090 |
-| bytes saved, the 28 gasol finished, validated | 5065 | 4156 |
+| total time, sum over contracts | 1433 s | 12190 s |
+| per-contract time, median / max | 54 s / 102 s | 466 s / 874 s |
+| gas saved | 18237 | 12090 |
+| bytes saved | 5065 | 4156 |
 
 Per contract: [`benchmark-details.md`](benchmark-details.md); to reproduce, see [`HOWTO-compare.md`](HOWTO-compare.md).
 

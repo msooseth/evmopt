@@ -110,19 +110,19 @@ def main():
         rows = sorted(ex.map(lambda f: bench_one(f, args.gasol), files), key=lambda r: r["name"])
     total_wall = time.perf_counter() - t0
 
-    print("| contract | blocks | evmopt s | evmopt MB | gas saved | bytes saved | gasol s "
-          "| gasol gas saved | gasol bytes saved | evmopt better |")
+    print("| contract | blocks | evmopt s | gasol s | evmopt MB | evmopt gas saved | gasol gas saved "
+          "| evmopt bytes saved | gasol bytes saved | evmopt better |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     for r in rows:
         g = r.get("gasol") or {}
         gt = f"{g['time']:.0f}" if g.get("time") is not None else ("fail/timeout" if args.gasol else "-")
         m = measured(r) if g.get("time") is not None else None
-        gs = f"{m[0][0]} | {m[0][1]}" if m else "- | -"
+        gg, gb = (str(m[0][0]), str(m[0][1])) if m else ("-", "-")
         eg, eb = r['gas'][0] - r['gas'][1], r['bytes'][0] - r['bytes'][1]
         better = {(True, True): "both", (True, False): "gas", (False, True): "bytes"}.get(
             (eg > m[0][0], eb > m[0][1]), "-") if m else "-"
-        print(f"| {r['name'][:10]} | {r['blocks']} | {r['time']:.1f} | {r['rss']} | "
-              f"{eg} | {eb} | {gt} | {gs} | {better} |")
+        print(f"| {r['name'][:10]} | {r['blocks']} | {r['time']:.1f} | {gt} | {r['rss']} | "
+              f"{eg} | {gg} | {eb} | {gb} | {better} |")
     gb = sum(r["gas"][0] for r in rows); ga = sum(r["gas"][1] for r in rows)
     sb = sum(r["bytes"][0] for r in rows); sa = sum(r["bytes"][1] for r in rows)
     gtime = [r["gasol"]["time"] for r in rows if r.get("gasol") and r["gasol"].get("time") is not None]

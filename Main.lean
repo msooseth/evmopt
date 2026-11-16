@@ -61,6 +61,25 @@ def loadJson (path : String) : IO Lean.Json := do
 def showBlock (b : Block) : String := " ".intercalate (b.map Instr.show)
 def showX (b : XBlock) : String := " ".intercalate (b.map XInstr.show)
 
+def sameItems (a b : List Item) : Bool := a.map Item.show == b.map Item.show
+
+/-- gasol's runs where `xcheck` validates them, the original's elsewhere; the whole original
+    if the barriers differ. -/
+def validRuns (f : Fork) (xo xg : List Item) : List (List Item) :=
+  let ro := runs xo; let rg := runs xg
+  let pick : Sum (List Item) String → Sum (List Item) String → Option (List Item)
+    | .inl a, .inl b =>
+      let ok := sameItems a b || match tagItems [] a with
+        | some (x, t) => match tagItems t b with
+          | some (y, _) => xcheck f x y
+          | none => false
+        | none => false
+      some (if ok then b else a)
+    | .inr s, .inr s' => if s == s' then some [] else none
+    | _, _ => none
+  if ro.length != rg.length then [xo]
+  else ((ro.zip rg).mapM fun (a, b) => pick a b).getD [xo]
+
 /-- Validate gasol's optimised asm against the original, block by block. -/
 def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
   let jo ← loadJson orig
@@ -73,6 +92,7 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
   let mut oursBetter := 0; let mut gasolBetter := 0
   let mut nEff := 0; let mut nEffSame := 0; let mut nEffOk := 0; let mut nEffBad := 0
   let mut nEffUnval := 0
+  let mut mGas := (0, 0, 0); let mut mSize := (0, 0, 0)
   for (name, codesO) in co do
     let some codesG := cg.lookup name | continue
     for (ao, ag) in codesO.zip codesG do
@@ -83,6 +103,18 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
         if verbose then IO.println s!"[mismatch] {name}: {bo.length} vs {bg.length} blocks"
         continue
       for (xo, xg) in bo.zip bg do
+        let xv := validRuns f xo xg
+        if verbose then
+          for (a, b) in (runs xo).zip (runs xg) do
+            if let (.inl a, .inl b) := (a, b) then
+              if let (some (x, t)) := tagItems [] a then
+                if let some (y, _) := tagItems t b then
+                  if !sameItems a b && !xcheck f x y then
+                    IO.println s!"[run rejected] {xcheckReason f x y}"
+        mGas := (mGas.1 + itemsCost f xo, mGas.2.1 + itemsCost f xg,
+          mGas.2.2 + (xv.map (itemsCost f)).sum)
+        mSize := (mSize.1 + itemsSize xo, mSize.2.1 + itemsSize xg,
+          mSize.2.2 + (xv.map itemsSize).sum)
         match stackOnly (body xo), stackOnly (body xg) with
         | some b, some b' =>
           let ours := optimizeBlock f b
@@ -129,6 +161,8 @@ def gasolCmp (f : Fork) (orig opt : String) (verbose : Bool) : IO Unit := do
     wrong {nEffBad}, effects changed and no counterexample found {nEffUnval})"
   IO.println s!"stack-only blocks gas: original {gOrig}, gasol (validated only) {gGasol}, \
     ours {gOurs}; ours better on {oursBetter}, gasol better on {gasolBetter}"
+  IO.println s!"measured: stack-op gas {mGas.1} -> {mGas.2.1} (validated only {mGas.2.2}), \
+    stack-op bytes {mSize.1} -> {mSize.2.1} (validated only {mSize.2.2})"
 
 /-- Our peephole optimizer over every block of a solc asm json. -/
 def statsJson (f : Fork) (path : String) : IO Unit := do
